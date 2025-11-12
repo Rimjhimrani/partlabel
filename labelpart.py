@@ -264,7 +264,7 @@ def generate_labels_from_excel_v1(df, progress_bar=None, status_text=None):
             part_table2 = Table([['Part No', format_part_no_v1(str(part2['Part No']))], ['Description', format_description_v1(str(part2['Description']))]], colWidths=[4*cm, 11*cm], rowHeights=[part_no_height, desc_loc_height])
             part_table2.setStyle(TableStyle([('GRID', (0, 0), (-1, -1), 1, colors.black), ('ALIGN', (0, 0), (0, -1), 'CENTRE'), ('ALIGN', (1, 0), (1, -1), 'LEFT'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('LEFTPADDING', (0, 0), (-1, -1), 5), ('RIGHTPADDING', (0, 0), (-1, -1), 5), ('TOPPADDING', (0, 0), (-1, -1), 3), ('BOTTOMPADDING', (0, 0), (-1, -1), 3), ('FONTNAME', (0, 0), (0, -1), 'Helvetica'), ('FONTSIZE', (0, 0), (0, -1), 16)]))
 
-            location_data = [['Part Location'] + location_values]
+            location_data = [['Line Location'] + location_values]
             col_proportions = [1.8, 2.7, 1.3, 1.3, 1.3, 1.3, 1.3]
             location_widths = [4 * cm] + [w * (11 * cm) / sum(col_proportions) for w in col_proportions]
             
@@ -318,7 +318,7 @@ def generate_labels_from_excel_v2(df, progress_bar=None, status_text=None):
             part_table = Table([['Part No', format_part_no_v2(str(part1['Part No']))], ['Description', format_description(str(part1['Description']))]], colWidths=[4*cm, 11*cm], rowHeights=[part_no_height, desc_height])
             part_table.setStyle(TableStyle([('GRID', (0, 0), (-1, -1), 1, colors.black), ('ALIGN', (0, 0), (0, -1), 'CENTER'), ('ALIGN', (1, 0), (1, 0), 'CENTER'), ('ALIGN', (1, 1), (1, -1), 'LEFT'), ('VALIGN', (0, 0), (0, 0), 'MIDDLE'), ('VALIGN', (1, 0), (1, 0), 'TOP'), ('VALIGN', (0, 1), (-1, -1), 'MIDDLE'), ('LEFTPADDING', (0, 0), (-1, -1), 5), ('RIGHTPADDING', (0, 0), (-1, -1), 5), ('TOPPADDING', (1, 0), (1, 0), 10), ('BOTTOMPADDING', (1, 0), (1, 0), 5), ('FONTNAME', (0, 0), (0, -1), 'Helvetica'), ('FONTSIZE', (0, 0), (0, -1), 16)]))
             
-            location_data = [['Part Location'] + location_values]
+            location_data = [['Line Location'] + location_values]
             col_widths = [1.7, 2.9, 1.3, 1.2, 1.3, 1.3, 1.3]
             location_widths = [4 * cm] + [w * (11 * cm) / sum(col_widths) for w in col_widths]
 
@@ -418,7 +418,7 @@ def main():
                     status_text = st.empty()
                     
                     try:
-                        status_text.text("Automating part locations...")
+                        status_text.text("Automating line locations...")
                         df_processed = process_and_assign_locations(df, rack_input, level_selections, status_text)
                         
                         if df_processed is not None:
