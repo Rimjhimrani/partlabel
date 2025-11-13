@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import re
 import io
+import math
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer, Paragraph, PageBreak
@@ -141,7 +142,7 @@ def get_unique_bins(df, container_col):
     bins = sorted([c for c in unique_containers.unique() if 'BIN' in c.upper()])
     return bins
 
-def process_and_assign_locations(df, rack_input, level_selections_by_bin, status_text=None):
+def process_and_assign_locations(df, rack_input, level_selections_by_bin, bin_capacities, status_text=None):
     """Processes the DataFrame to assign automated location values based on user input."""
     
     part_no_col, desc_col, model_col, station_col, container_col = find_required_columns(df)
@@ -153,28 +154,51 @@ def process_and_assign_locations(df, rack_input, level_selections_by_bin, status
     if status_text:
         status_text.text(f"Automating with columns: Part No='{part_no_col}', Container='{container_col}'")
 
-    # --- NEW: Dynamic Rack Numbering based on sorted bin types ---
-    sorted_unique_bins = get_unique_bins(df, container_col)
-    bin_to_rack_num = {bin_name: index + 1 for index, bin_name in enumerate(sorted_unique_bins)}
-
     processed_rows = []
-    level_counters = {} # To cycle through user-selected levels for each container type
+    level_counters = {} 
+    
+    # --- NEW: Rack Numbering based on Bin Capacity ---
+    sorted_unique_bins = get_unique_bins(df, container_col)
+    bin_rack_assignments = {}
+    current_rack_start = 1
+
+    for bin_type in sorted_unique_bins:
+        capacity = bin_capacities.get(bin_type, 1)
+        if capacity == 0:
+            st.warning(f"Capacity for {bin_type} is zero, defaulting to 1 to avoid division errors.")
+            capacity = 1
+        
+        bin_count = df[df[container_col] == bin_type].shape[0]
+        num_racks = math.ceil(bin_count / capacity)
+        
+        bin_rack_assignments[bin_type] = {
+            'start_rack': current_rack_start,
+            'num_racks': num_racks,
+            'part_counter': 0
+        }
+        current_rack_start += num_racks
 
     for _, row in df.iterrows():
         container_type = str(row.get(container_col, '')).strip()
         
-        # --- Automated Location Logic ---
         rack_no_1st = ''
         rack_no_2nd = ''
         
-        # Get sequential rack number based on the bin type
-        rack_num = bin_to_rack_num.get(container_type)
-        if rack_num is not None:
-            rack_num_str = f"{rack_num:02d}"  # Format as two digits (e.g., 1 -> "01", 12 -> "12")
+        if container_type in bin_rack_assignments:
+            assignment = bin_rack_assignments[container_type]
+            capacity = bin_capacities.get(container_type, 1)
+            if capacity == 0:
+                capacity = 1
+
+            rack_offset = assignment['part_counter'] // capacity
+            current_rack = assignment['start_rack'] + rack_offset
+            
+            rack_num_str = f"{current_rack:02d}"
             rack_no_1st = rack_num_str[0]
             rack_no_2nd = rack_num_str[1]
+            
+            assignment['part_counter'] += 1
 
-        # Get the specific levels chosen by the user for THIS container type
         level_options = level_selections_by_bin.get(container_type, [])
         
         if level_options:
@@ -193,7 +217,7 @@ def process_and_assign_locations(df, rack_input, level_selections_by_bin, status
             'Rack No 1st': rack_no_1st,
             'Rack No 2nd': rack_no_2nd,
             'Level': assigned_level,
-            'Cell': '' # Cell is kept empty as requested
+            'Cell': ''
         }
         processed_rows.append(new_row)
         
@@ -381,37 +405,45 @@ def main():
             with st.expander("📊 File Preview", expanded=False):
                 st.dataframe(df.head(3))
 
-            # --- NEW: Dynamic UI for Level Selection ---
             level_selections = {}
+            bin_capacities = {}
             _, _, _, _, container_col = find_required_columns(df)
             
             if container_col:
                 unique_bins = get_unique_bins(df, container_col)
                 if unique_bins:
-                    st.sidebar.title("Level Automation Settings")
-                    st.sidebar.info("Select the levels to assign for each detected bin type.")
+                    st.sidebar.title("Automation Settings")
+                    st.sidebar.info("Select levels and define capacities for each bin type.")
+                    
                     for bin_type in unique_bins:
+                        st.sidebar.markdown(f"**{bin_type}**")
                         level_selections[bin_type] = st.sidebar.multiselect(
                             f"Levels for {bin_type}",
                             options=['A', 'B', 'C', 'D', 'E'],
                             default=['A', 'B', 'C', 'D', 'E'],
-                            key=bin_type 
+                            key=f"level_{bin_type}" 
+                        )
+                        bin_capacities[bin_type] = st.sidebar.number_input(
+                            f"Capacity for {bin_type}",
+                            min_value=1,
+                            value=1,
+                            key=f"capacity_{bin_type}"
                         )
                 else:
-                    st.warning("No 'Bin' types found in the 'Container Type' column to automate levels.")
+                    st.warning("No 'Bin' types found in the 'Container Type' column to automate.")
             else:
-                st.error("Could not find a 'Container Type' column in the file. Level automation is disabled.")
+                st.error("Could not find a 'Container Type' column in the file. Automation is disabled.")
 
 
             if st.button("🚀 Generate PDF Labels", type="primary"):
-                # Validation check
                 is_ready = True
                 if not rack_input:
                     st.warning("Please enter a value for the Rack.")
                     is_ready = False
-                if container_col and not level_selections:
-                    st.warning("No bin types were detected or configured for level automation.")
-                    # This is not a blocking error, can proceed with empty levels.
+                
+                if container_col and not all(bin_capacities.values()):
+                    st.warning("Please enter a capacity for all bin types.")
+                    is_ready = False
 
                 if is_ready:
                     progress_bar = st.progress(0)
@@ -419,7 +451,7 @@ def main():
                     
                     try:
                         status_text.text("Automating line locations...")
-                        df_processed = process_and_assign_locations(df, rack_input, level_selections, status_text)
+                        df_processed = process_and_assign_locations(df, rack_input, level_selections, bin_capacities, status_text)
                         
                         if df_processed is not None:
                             if label_type == "Single Part":
@@ -457,7 +489,9 @@ def main():
             ### How to use this tool:
             1. **Set Static Settings**: In the sidebar, enter the constant **Rack** value (e.g., TR).
             2. **Upload your file**: Choose an Excel or CSV file.
-            3. **Configure Dynamic Levels**: The tool will detect bin types (Bin A, Bin B...) and show new options in the sidebar. Select the levels you want to assign to each bin type.
+            3. **Configure Dynamic Settings**: The tool will detect bin types (Bin A, Bin B...) and show new options in the sidebar. 
+                - Select the **levels** you want to assign to each bin type.
+                - Enter the **capacity** for each bin type.
             4. **Select Label Format**: Choose between **Single Part** or **Multiple Parts** per label.
             5. **Generate & Download**: Click the generate button to create and download your PDF.
             
