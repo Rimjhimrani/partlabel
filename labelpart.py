@@ -137,14 +137,15 @@ def get_unique_bins(df, container_col):
     if not container_col or container_col not in df.columns:
         return []
     
-    # Extract unique values that contain 'bin' (case-insensitive), then sort them
     unique_containers = df[container_col].dropna().astype(str)
     bins = sorted([c for c in unique_containers.unique() if 'BIN' in c.upper()])
     return bins
 
-def process_and_assign_locations(df, rack_input, level_selections_by_bin, bin_capacities, status_text=None):
-    """Processes the DataFrame to assign automated location values based on user input."""
-    
+def process_and_assign_locations(df, rack_input, level_selections_by_bin, bin_capacities, cells_per_level, status_text=None):
+    """
+    Processes the DataFrame to assign automated location values based on user input.
+    Rack, Level, and Cell assignments are now calculated independently for each bin type.
+    """
     part_no_col, desc_col, model_col, station_col, container_col = find_required_columns(df)
     
     if not part_no_col or not container_col:
@@ -155,70 +156,63 @@ def process_and_assign_locations(df, rack_input, level_selections_by_bin, bin_ca
         status_text.text(f"Automating with columns: Part No='{part_no_col}', Container='{container_col}'")
 
     processed_rows = []
-    level_counters = {} 
     
-    # --- NEW: Rack Numbering based on Bin Capacity ---
+    # Get all unique bin types that have settings configured
     sorted_unique_bins = get_unique_bins(df, container_col)
-    bin_rack_assignments = {}
-    current_rack_start = 1
 
+    # Process one bin type at a time to manage location assignments independently
     for bin_type in sorted_unique_bins:
-        capacity = bin_capacities.get(bin_type, 1)
-        if capacity == 0:
-            st.warning(f"Capacity for {bin_type} is zero, defaulting to 1 to avoid division errors.")
-            capacity = 1
-        
-        bin_count = df[df[container_col] == bin_type].shape[0]
-        num_racks = math.ceil(bin_count / capacity)
-        
-        bin_rack_assignments[bin_type] = {
-            'start_rack': current_rack_start,
-            'num_racks': num_racks,
-            'part_counter': 0
-        }
-        current_rack_start += num_racks
+        df_bin = df[df[container_col] == bin_type].copy()
+        if df_bin.empty:
+            continue
 
-    for _, row in df.iterrows():
-        container_type = str(row.get(container_col, '')).strip()
+        # Get settings for this specific bin type from the user
+        capacity = bin_capacities.get(bin_type, 1) or 1
+        levels = level_selections_by_bin.get(bin_type, [])
+        num_cells_per_level = cells_per_level.get(bin_type, 1) or 1
         
-        rack_no_1st = ''
-        rack_no_2nd = ''
-        
-        if container_type in bin_rack_assignments:
-            assignment = bin_rack_assignments[container_type]
-            capacity = bin_capacities.get(container_type, 1)
-            if capacity == 0:
-                capacity = 1
+        # If no levels are selected for this bin, we cannot calculate a location.
+        if not levels:
+            for _, row in df_bin.iterrows():
+                new_row = {'Part No': row.get(part_no_col, ''), 'Description': row.get(desc_col, ''), 'Bus Model': row.get(model_col, ''), 'Station No': row.get(station_col, ''), 'Rack': rack_input, 'Rack No 1st': '', 'Rack No 2nd': '', 'Level': '', 'Cell': ''}
+                processed_rows.append(new_row)
+            continue # Skip to the next bin type
 
-            rack_offset = assignment['part_counter'] // capacity
-            current_rack = assignment['start_rack'] + rack_offset
+        # Calculate the total number of parts a single rack can hold for this bin type
+        rack_total_capacity = capacity * num_cells_per_level * len(levels)
+        if rack_total_capacity == 0: rack_total_capacity = 1
+
+        # Iterate through each part of the current bin type to assign its location
+        for i, (_, row) in enumerate(df_bin.iterrows()):
+            # Determine the rack number (e.g., Rack 1, Rack 2, etc.) for this part
+            rack_num = math.floor(i / rack_total_capacity) + 1
+            rack_num_str = f"{rack_num:02d}"
             
-            rack_num_str = f"{current_rack:02d}"
-            rack_no_1st = rack_num_str[0]
-            rack_no_2nd = rack_num_str[1]
+            # Determine the part's sequential position within its assigned rack
+            position_in_rack = i % rack_total_capacity
             
-            assignment['part_counter'] += 1
+            # Determine which "slot" the part goes into (each slot holds 'capacity' number of items)
+            slot_index = math.floor(position_in_rack / capacity)
+            
+            # From the slot index, determine the specific Level and Cell
+            level_index = slot_index // num_cells_per_level
+            assigned_level = levels[level_index]
+            
+            cell_num = (slot_index % num_cells_per_level) + 1
 
-        level_options = level_selections_by_bin.get(container_type, [])
-        
-        if level_options:
-            level_idx = level_counters.get(container_type, 0)
-            assigned_level = level_options[level_idx]
-            level_counters[container_type] = (level_idx + 1) % len(level_options)
-        else:
-            assigned_level = ''
+            new_row = {
+                'Part No': row.get(part_no_col, ''), 'Description': row.get(desc_col, ''),
+                'Bus Model': row.get(model_col, ''), 'Station No': row.get(station_col, ''),
+                'Rack': rack_input,
+                'Rack No 1st': rack_num_str[0], 'Rack No 2nd': rack_num_str[1],
+                'Level': assigned_level, 'Cell': str(cell_num)
+            }
+            processed_rows.append(new_row)
 
-        new_row = {
-            'Part No': row.get(part_no_col, ''),
-            'Description': row.get(desc_col, ''),
-            'Bus Model': row.get(model_col, ''),
-            'Station No': row.get(station_col, ''),
-            'Rack': rack_input,
-            'Rack No 1st': rack_no_1st,
-            'Rack No 2nd': rack_no_2nd,
-            'Level': assigned_level,
-            'Cell': ''
-        }
+    # Add rows for parts that are not in any of the processed bin types
+    df_non_bin = df[~df[container_col].isin(sorted_unique_bins)].copy()
+    for _, row in df_non_bin.iterrows():
+        new_row = {'Part No': row.get(part_no_col, ''), 'Description': row.get(desc_col, ''), 'Bus Model': row.get(model_col, ''), 'Station No': row.get(station_col, ''), 'Rack': rack_input, 'Rack No 1st': '', 'Rack No 2nd': '', 'Level': '', 'Cell': ''}
         processed_rows.append(new_row)
         
     return pd.DataFrame(processed_rows)
@@ -227,28 +221,22 @@ def process_and_assign_locations(df, rack_input, level_selections_by_bin, bin_ca
 def create_location_key(row):
     """Create a unique key for grouping by the newly generated location."""
     return '_'.join([
-        str(row.get('Bus Model', '')),
-        str(row.get('Station No', '')),
-        str(row.get('Rack', '')),
-        str(row.get('Rack No 1st', '')),
-        str(row.get('Rack No 2nd', '')),
-        str(row.get('Level', '')),
+        str(row.get('Bus Model', '')), str(row.get('Station No', '')),
+        str(row.get('Rack', '')), str(row.get('Rack No 1st', '')),
+        str(row.get('Rack No 2nd', '')), str(row.get('Level', '')),
         str(row.get('Cell', ''))
     ])
 
 def extract_location_values(row):
     """Extract location values from the processed row's columns."""
     return [
-        str(row.get('Bus Model', '')),
-        str(row.get('Station No', '')),
-        str(row.get('Rack', '')),
-        str(row.get('Rack No 1st', '')),
-        str(row.get('Rack No 2nd', '')),
-        str(row.get('Level', '')),
+        str(row.get('Bus Model', '')), str(row.get('Station No', '')),
+        str(row.get('Rack', '')), str(row.get('Rack No 1st', '')),
+        str(row.get('Rack No 2nd', '')), str(row.get('Level', '')),
         str(row.get('Cell', ''))
     ]
 
-# --- PDF Generation Functions (Updated to use new logic) ---
+# --- PDF Generation Functions (No changes here, they adapt to the new data) ---
 
 def generate_labels_from_excel_v1(df, progress_bar=None, status_text=None):
     """Generate labels using version 1 formatting (Multi-Part)."""
@@ -407,6 +395,7 @@ def main():
 
             level_selections = {}
             bin_capacities = {}
+            cells_per_level = {} # NEW: Dictionary to store cells per level for each bin
             _, _, _, _, container_col = find_required_columns(df)
             
             if container_col:
@@ -424,10 +413,13 @@ def main():
                             key=f"level_{bin_type}" 
                         )
                         bin_capacities[bin_type] = st.sidebar.number_input(
-                            f"Capacity for {bin_type}",
-                            min_value=1,
-                            value=1,
-                            key=f"capacity_{bin_type}"
+                            f"Capacity per Cell for {bin_type}", # UPDATED LABEL
+                            min_value=1, value=1, key=f"capacity_{bin_type}"
+                        )
+                        # NEW UI ELEMENT
+                        cells_per_level[bin_type] = st.sidebar.number_input(
+                            f"Cells per Level for {bin_type}",
+                            min_value=1, value=1, key=f"cells_{bin_type}"
                         )
                 else:
                     st.warning("No 'Bin' types found in the 'Container Type' column to automate.")
@@ -451,7 +443,10 @@ def main():
                     
                     try:
                         status_text.text("Automating line locations...")
-                        df_processed = process_and_assign_locations(df, rack_input, level_selections, bin_capacities, status_text)
+                        # UPDATED: Pass the new cells_per_level dictionary
+                        df_processed = process_and_assign_locations(
+                            df, rack_input, level_selections, bin_capacities, cells_per_level, status_text
+                        )
                         
                         if df_processed is not None:
                             if label_type == "Single Part":
@@ -465,7 +460,9 @@ def main():
                                 status_text.text("✅ PDF generated successfully!")
                                 st.download_button(label="📥 Download PDF Labels", data=pdf_buffer.getvalue(), file_name=filename, mime="application/pdf")
                                 with st.expander("📈 Generation Statistics", expanded=True):
-                                    unique_locations = df_processed['location_key'].nunique()
+                                    # Filter out locations that couldn't be generated
+                                    valid_locations = df_processed[df_processed['Level'] != '']
+                                    unique_locations = valid_locations['location_key'].nunique()
                                     st.metric("Total Parts Processed", len(df_processed))
                                     st.metric("Unique Locations Created", unique_locations)
                                     st.metric("Labels Generated", unique_locations)
@@ -490,8 +487,9 @@ def main():
             1. **Set Static Settings**: In the sidebar, enter the constant **Rack** value (e.g., TR).
             2. **Upload your file**: Choose an Excel or CSV file.
             3. **Configure Dynamic Settings**: The tool will detect bin types (Bin A, Bin B...) and show new options in the sidebar. 
-                - Select the **levels** you want to assign to each bin type.
-                - Enter the **capacity** for each bin type.
+                - Select the **Levels** you want to assign to each bin type (e.g., A, B, C).
+                - Enter the **Capacity per Cell** (how many parts fit in one cell).
+                - Enter the **Cells per Level** (how many cells are on each level).
             4. **Select Label Format**: Choose between **Single Part** or **Multiple Parts** per label.
             5. **Generate & Download**: Click the generate button to create and download your PDF.
             
