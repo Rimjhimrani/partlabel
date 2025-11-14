@@ -382,8 +382,8 @@ def main():
 
     st.sidebar.title("⚙️ Automation Settings")
     rack_input = st.sidebar.text_input(
-        "Enter Base Rack Value", 
-        "TR",
+        "Enter Storage Line Side Infrastructure", 
+        "R",
         help="Enter the static value for the 'Rack' field (e.g., TR, R, S)."
     )
     
