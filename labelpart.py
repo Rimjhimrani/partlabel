@@ -1,14 +1,13 @@
 import streamlit as st
 import pandas as pd
 import os
-import math
 import io
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer, Paragraph, PageBreak
 from reportlab.lib.units import cm
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.lib.enums import TA_LEFT, TA_CENTER
+from reportlab.lib.enums import TA_LEFT
 
 # Configure Streamlit page
 st.set_page_config(
@@ -113,7 +112,7 @@ def format_description(desc):
         desc = str(desc)
     return Paragraph(desc, desc_style)
 
-# --- NEW AND UPDATED Core Logic Functions ---
+# --- Core Logic Functions (No Changes Here) ---
 
 def find_required_columns(df):
     """Find essential columns in the DataFrame for processing."""
@@ -154,65 +153,52 @@ def automate_location_assignment(df, rack_input, level_selections, bin_capacitie
     if status_text:
         status_text.text(f"Automating with: Part No='{part_no_col}', Container='{container_col}'")
 
-    # Create a working copy to avoid SettingWithCopyWarning
     df_processed = df.copy()
 
-    # Initialize new columns
     df_processed['Rack'] = rack_input
     df_processed['Rack No 1st'] = ''
     df_processed['Rack No 2nd'] = ''
     df_processed['Level'] = ''
     df_processed['Cell'] = ''
 
-    # Assign sequential rack numbers to sorted bin types
     sorted_unique_bins = get_unique_bins(df_processed, container_col)
     bin_to_rack_num = {bin_name: index + 1 for index, bin_name in enumerate(sorted_unique_bins)}
 
-    # Process each bin type group
     for bin_type, rack_num in bin_to_rack_num.items():
         capacity = bin_capacities.get(bin_type, 0)
         levels = level_selections.get(bin_type, [])
         
-        # Skip if capacity or levels are not defined for this bin
         if not capacity or not levels:
             continue
 
-        # Create a mask to select only the rows for the current bin_type
         mask = df_processed[container_col] == bin_type
         num_parts_in_bin = mask.sum()
         
         if num_parts_in_bin == 0:
             continue
 
-        # Prepare lists to hold the new column values for this group
         assigned_levels = []
         assigned_cells = []
 
-        # Use part counter for this specific bin
         for i in range(num_parts_in_bin):
-            # Assign Level: Cycle through the selected levels for this bin
             level_index = (i // capacity) % len(levels)
             assigned_levels.append(levels[level_index])
             
-            # Assign Cell: Number from 1 up to capacity, then reset
             cell_number = (i % capacity) + 1
-            assigned_cells.append(f"{cell_number:02d}") # Format as two digits (e.g., 01, 02)
+            assigned_cells.append(f"{cell_number:02d}")
 
-        # Assign the generated values to the DataFrame using the mask
         rack_num_str = f"{rack_num:02d}"
         df_processed.loc[mask, 'Rack No 1st'] = rack_num_str[0]
         df_processed.loc[mask, 'Rack No 2nd'] = rack_num_str[1]
         df_processed.loc[mask, 'Level'] = assigned_levels
         df_processed.loc[mask, 'Cell'] = assigned_cells
 
-    # RENAME columns to the standard names required by the PDF functions
     rename_dict = {
         part_no_col: 'Part No',
         desc_col: 'Description',
         model_col: 'Bus Model',
         station_col: 'Station No'
     }
-    # Only keep columns that were found in the original file
     final_columns = {k: v for k, v in rename_dict.items() if k is not None}
     df_processed.rename(columns=final_columns, inplace=True)
     
@@ -243,7 +229,7 @@ def extract_location_values(row):
         str(row.get('Cell', ''))
     ]
 
-# --- PDF Generation Functions (Updated to use standard column names) ---
+# --- PDF Generation Functions (No Changes Here) ---
 
 def generate_labels_from_excel_v1(df, progress_bar=None, status_text=None):
     """Generate labels using version 1 formatting (Multi-Part)."""
@@ -361,7 +347,7 @@ def generate_labels_from_excel_v2(df, progress_bar=None, status_text=None):
         return buffer
     return None
 
-
+# --- Main Application UI ---
 def main():
     st.title("🏷️ Rack Label Generator")
     st.markdown(
@@ -401,9 +387,12 @@ def main():
             with st.expander("📊 File Preview", expanded=False):
                 st.dataframe(df.head(3))
 
-            # --- Dynamic UI for Bin Configuration ---
+            # --- NEW AND UPDATED: Dynamic UI for Bin Configuration ---
             level_selections = {}
             bin_capacities = {}
+            container_dimensions = {} # To store container dimensions
+            level_dimensions = {}     # To store dimensions for each level
+
             _, _, _, _, container_col = find_required_columns(df)
             
             if container_col:
@@ -411,22 +400,55 @@ def main():
                 if unique_bins:
                     st.sidebar.markdown("---")
                     st.sidebar.subheader("Bin Configuration")
-                    st.sidebar.info("Set the capacity and assign levels for each detected bin type.")
+                    st.sidebar.info("Set levels, dimensions, and capacity for each bin type.")
                     
                     for bin_type in unique_bins:
-                        st.sidebar.markdown(f"**Settings for {bin_type}**")
+                        st.sidebar.markdown(f"#### Settings for {bin_type}")
+
+                        # 1. Ask for level selection
+                        selected_levels = st.sidebar.multiselect(
+                            f"Select Levels for {bin_type}",
+                            options=['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'],
+                            default=['A', 'B', 'C', 'D'],
+                            key=f"lvl_{bin_type}"
+                        )
+                        level_selections[bin_type] = selected_levels
+
+                        # 2. Ask for dimension of selected levels
+                        if selected_levels:
+                            level_dimensions[bin_type] = {}
+                            with st.sidebar.expander(f"Enter Dimensions for Levels in {bin_type}"):
+                                for level in selected_levels:
+                                    st.markdown(f"**Level {level}**")
+                                    # Using columns to place inputs side-by-side
+                                    col1, col2, col3 = st.columns(3)
+                                    with col1:
+                                        l_l = st.number_input("L", min_value=0.0, value=5.0, step=0.1, key=f"l_l_{bin_type}_{level}", help=f"Length for Level {level}")
+                                    with col2:
+                                        l_w = st.number_input("W", min_value=0.0, value=5.0, step=0.1, key=f"l_w_{bin_type}_{level}", help=f"Width for Level {level}")
+                                    with col3:
+                                        l_h = st.number_input("H", min_value=0.0, value=5.0, step=0.1, key=f"l_h_{bin_type}_{level}", help=f"Height for Level {level}")
+                                    level_dimensions[bin_type][level] = {'L': l_l, 'W': l_w, 'H': l_h}
+                        
+                        # 3. Ask for container type dimensions
+                        with st.sidebar.expander(f"Enter Dimensions for Container '{bin_type}'"):
+                             col1, col2, col3 = st.columns(3)
+                             with col1:
+                                c_l = st.number_input("L", min_value=0.0, value=10.0, step=0.1, key=f"c_l_{bin_type}", help=f"Length for {bin_type}")
+                             with col2:
+                                c_w = st.number_input("W", min_value=0.0, value=10.0, step=0.1, key=f"c_w_{bin_type}", help=f"Width for {bin_type}")
+                             with col3:
+                                c_h = st.number_input("H", min_value=0.0, value=10.0, step=0.1, key=f"c_h_{bin_type}", help=f"Height for {bin_type}")
+                             container_dimensions[bin_type] = {'L': c_l, 'W': c_w, 'H': c_h}
+
+                        # 4. Ask for container type capacity
                         bin_capacities[bin_type] = st.sidebar.number_input(
                             f"Capacity of {bin_type}",
                             min_value=1,
                             value=10,
                             step=1,
-                            key=f"cap_{bin_type}"
-                        )
-                        level_selections[bin_type] = st.sidebar.multiselect(
-                            f"Levels for {bin_type}",
-                            options=['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'],
-                            default=['A', 'B', 'C', 'D'],
-                            key=f"lvl_{bin_type}" 
+                            key=f"cap_{bin_type}",
+                            help=f"How many parts fit into one {bin_type}?"
                         )
                         st.sidebar.markdown("---")
                 else:
@@ -486,9 +508,10 @@ def main():
             1.  **Select Label Format**: Choose between **Single Part** or **Multiple Parts** in the sidebar.
             2.  **Enter Base Rack**: Enter the constant **Rack** value (e.g., TR).
             3.  **Upload your file**: Choose an Excel or CSV file.
-            4.  **Configure Bins**: The tool will automatically find bin types (e.g., Bin A, Bin B) from your file. New options will appear in the sidebar.
+            4.  **Configure Bins**: The tool automatically finds bin types (e.g., Bin A) from your file. New options will appear in the sidebar for each bin.
+                -   Select the **levels** (e.g., A, B, C) for that bin.
+                -   Expand the menus to enter the **dimensions** for each level and for the container itself.
                 -   Enter the **capacity** (how many parts fit in one bin).
-                -   Select the **levels** (e.g., A, B, C) you want to assign parts to for that bin type.
             5.  **Generate & Download**: Click the generate button to create and download your PDF.
             
             #### Required Columns in Your File:
