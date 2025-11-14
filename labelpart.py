@@ -140,10 +140,10 @@ def get_unique_bins(df, container_col):
     bins = sorted([c for c in unique_containers.unique() if 'BIN' in c.upper()])
     return bins
 
-def automate_location_assignment(df, rack_input, level_selections, bin_capacities, standard_bin_dimensions, level_dimensions_by_level, status_text=None):
+def automate_location_assignment(df, rack_input, level_selections, bin_capacities, container_dimensions, level_dimensions_by_level, status_text=None):
     """
-    Processes the DataFrame to assign automated location values based on dimensions,
-    bin type, capacity, and level selections.
+    Processes the DataFrame to assign automated location values based on unique dimensions
+    for both bins and levels.
     """
     part_no_col, _, _, _, container_col = find_required_columns(df)
 
@@ -154,23 +154,28 @@ def automate_location_assignment(df, rack_input, level_selections, bin_capacitie
     if status_text:
         status_text.text("Calculating bin placement based on dimensions...")
 
-    # --- Pre-calculate how many bins fit on each unique level ---
-    bins_per_level_config = {}
-    bin_dim = standard_bin_dimensions
+    # --- Pre-calculate how many bins of a specific type fit on a specific level ---
+    bins_per_level_config = {} # Key: (bin_type, level) -> Value: count
     
-    for level, level_dim in level_dimensions_by_level.items():
-        if not bin_dim or not level_dim or bin_dim.get('L', 0) == 0 or bin_dim.get('W', 0) == 0:
-            bins_that_fit = 1
-        else:
-            fit_l = math.floor(level_dim['L'] / bin_dim['L']) if bin_dim['L'] > 0 else 0
-            fit_w = math.floor(level_dim['W'] / bin_dim['W']) if bin_dim['W'] > 0 else 0
-            bins_that_fit = max(1, fit_l * fit_w)
-        bins_per_level_config[level] = bins_that_fit
+    unique_bin_types = get_unique_bins(df, container_col)
+    for bin_type in unique_bin_types:
+        bin_dim = container_dimensions.get(bin_type)
+        if not bin_dim: continue
+
+        for level, level_dim in level_dimensions_by_level.items():
+            if not level_dim or bin_dim.get('L', 0) == 0 or bin_dim.get('W', 0) == 0:
+                bins_that_fit = 1
+            else:
+                fit_l = math.floor(level_dim['L'] / bin_dim['L']) if bin_dim['L'] > 0 else 0
+                fit_w = math.floor(level_dim['W'] / bin_dim['W']) if bin_dim['W'] > 0 else 0
+                bins_that_fit = max(1, fit_l * fit_w)
+            
+            bins_per_level_config[(bin_type, level)] = bins_that_fit
         
     # --- Initialize state trackers and output lists ---
     df_sorted = df.sort_values(by=container_col).reset_index(drop=True)
     
-    rack_num_for_bin_type = {bin_type: 1 for bin_type in get_unique_bins(df, container_col)}
+    rack_num_for_bin_type = {bin_type: 1 for bin_type in unique_bin_types}
     part_counters = {}  # Key: (bin_type, rack_num, level, cell_num), Value: count
     
     rack_list, r1_list, r2_list, lvl_list, cell_list = [], [], [], [], []
@@ -191,7 +196,8 @@ def automate_location_assignment(df, rack_input, level_selections, bin_capacitie
             current_rack = rack_num_for_bin_type.get(bin_type, 1)
             
             for level in assigned_levels:
-                max_bins_on_level = bins_per_level_config.get(level, 1)
+                # Lookup the fit for this specific bin-level combination
+                max_bins_on_level = bins_per_level_config.get((bin_type, level), 1)
                 
                 for cell in range(1, max_bins_on_level + 1):
                     key = (bin_type, current_rack, level, cell)
@@ -403,10 +409,10 @@ def main():
             with st.expander("📊 File Preview", expanded=False):
                 st.dataframe(df.head(3))
 
-            # --- NEW UI for Global and Bin-Specific Settings ---
+            # --- UI for Level and Bin-Specific Settings ---
             level_selections, bin_capacities = {}, {}
             level_dimensions_by_level = {}
-            standard_bin_dimensions = {}
+            container_dimensions = {} # Will hold dimensions for each unique bin type
 
             _, _, _, _, container_col = find_required_columns(df)
             
@@ -414,29 +420,20 @@ def main():
                 unique_bins = get_unique_bins(df, container_col)
                 if unique_bins:
                     st.sidebar.markdown("---")
-                    st.sidebar.subheader("Global Dimension Settings")
-                    st.sidebar.info("These dimensions apply to all bins and levels.")
-
-                    # 1. Ask for Standard Bin Dimensions ONCE
-                    with st.sidebar.expander("Enter Standard Bin Dimensions", expanded=True):
-                        st.markdown("Dimensions for **all** container types (Bin A, Bin B, etc.)")
-                        b_col1, b_col2, b_col3 = st.columns(3)
-                        b_l = b_col1.number_input("L", min_value=0.1, value=40.0, step=0.1, key="std_bin_l", help="Standard Length for ALL bins")
-                        b_w = b_col2.number_input("W", min_value=0.1, value=40.0, step=0.1, key="std_bin_w", help="Standard Width for ALL bins")
-                        b_h = b_col3.number_input("H", min_value=0.1, value=40.0, step=0.1, key="std_bin_h", help="Standard Height for ALL bins")
-                        standard_bin_dimensions = {'L': b_l, 'W': b_w, 'H': b_h}
-
-                    # 2. Ask which levels to configure
+                    st.sidebar.subheader("Level & Bin Configuration")
+                    
+                    # 1. Ask which levels to configure
                     all_possible_levels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
                     configurable_levels = st.sidebar.multiselect(
                         "Select Levels to Configure",
                         options=all_possible_levels,
-                        default=['A', 'B', 'C', 'D']
+                        default=['A', 'B', 'C', 'D'],
+                        help="Choose all levels that exist in your storage rack."
                     )
 
-                    # 3. Ask for dimensions for each selected level
+                    # 2. Ask for dimensions for each selected level
                     if configurable_levels:
-                        with st.sidebar.expander("Enter Dimensions for Each Level", expanded=True):
+                        with st.sidebar.expander("Enter Dimensions for Each Level", expanded=False):
                             for level in configurable_levels:
                                 st.markdown(f"**Dimensions for Level {level}**")
                                 l_col1, l_col2, l_col3 = st.columns(3)
@@ -445,14 +442,22 @@ def main():
                                 l_h = l_col3.number_input("H", min_value=0.1, value=50.0, step=0.1, key=f"lvl_h_{level}", help=f"Height of Level {level}")
                                 level_dimensions_by_level[level] = {'L': l_l, 'W': l_w, 'H': l_h}
 
-                    # 4. Ask for Bin-Specific Assignments and Capacity
+                    # 3. Ask for Bin-Specific Dimensions, Assignments, and Capacity
                     st.sidebar.markdown("---")
                     st.sidebar.subheader("Bin-Specific Settings")
                     for bin_type in unique_bins:
                         with st.sidebar.expander(f"Settings for {bin_type}", expanded=True):
+                            st.markdown(f"**Dimensions for '{bin_type}'**")
+                            b_col1, b_col2, b_col3 = st.columns(3)
+                            b_l = b_col1.number_input("L", min_value=0.1, value=40.0, step=0.1, key=f"bin_l_{bin_type}", help=f"Length of {bin_type}")
+                            b_w = b_col2.number_input("W", min_value=0.1, value=40.0, step=0.1, key=f"bin_w_{bin_type}", help=f"Width of {bin_type}")
+                            b_h = b_col3.number_input("H", min_value=0.1, value=40.0, step=0.1, key=f"bin_h_{bin_type}", help=f"Height of {bin_type}")
+                            container_dimensions[bin_type] = {'L': b_l, 'W': b_w, 'H': b_h}
+                            
+                            st.markdown("---")
                             level_selections[bin_type] = st.multiselect(
                                 "Assignable Levels",
-                                options=configurable_levels, # Can only assign to configured levels
+                                options=configurable_levels,
                                 default=configurable_levels, key=f"assign_{bin_type}",
                                 help=f"Which pre-configured levels can {bin_type} be placed on?"
                             )
@@ -468,7 +473,7 @@ def main():
 
             # --- PDF Generation ---
             if st.button("🚀 Generate PDF Labels", type="primary"):
-                if not all([rack_input, standard_bin_dimensions, level_dimensions_by_level, level_selections]):
+                if not all([rack_input, container_dimensions, level_dimensions_by_level, level_selections]):
                     st.warning("Please configure all dimension and assignment settings in the sidebar.")
                 else:
                     progress_bar, status_text = st.progress(0), st.empty()
@@ -476,7 +481,7 @@ def main():
                         status_text.text("Automating line locations based on dimensions...")
                         df_processed = automate_location_assignment(
                             df, rack_input, level_selections, bin_capacities, 
-                            standard_bin_dimensions, level_dimensions_by_level, status_text
+                            container_dimensions, level_dimensions_by_level, status_text
                         )
                         
                         if df_processed is not None and not df_processed.empty:
@@ -511,12 +516,13 @@ def main():
             ### How to use this tool:
             1.  **Select Label Format & Enter Rack**: Choose your label style and enter the base **Rack** value (e.g., R).
             2.  **Upload Your File**: It must contain columns for Part Number and Container Type.
-            3.  **Configure Global Dimensions**:
-                -   Enter the **Standard Bin Dimensions** once. This applies to all bin types in your file.
-                -   Select which **Levels** you want to use (A, B, C, etc.).
-                -   For each level you selected, enter its unique **Level Dimensions**.
-            4.  **Configure Bin-Specific Settings**:
-                -   For each bin type, select which of the configured levels it can be placed on.
+            3.  **Configure Levels**:
+                -   Select all **Levels** that exist in your storage area (A, B, C, etc.).
+                -   Expand the menu to enter the unique **Dimensions** for each level you selected.
+            4.  **Configure Bins**:
+                -   For each bin type found in your file, expand its settings menu.
+                -   Enter the unique **Dimensions** for that specific bin type.
+                -   Select which of the configured levels it can be placed on.
                 -   Enter the part **Capacity** (how many parts fit *inside* one bin).
             5.  **Generate & Download**: Click the generate button to create your PDF.
             """)
