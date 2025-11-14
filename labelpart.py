@@ -374,8 +374,8 @@ def main():
 
     st.sidebar.title("Static Location Settings")
     rack_input = st.sidebar.text_input(
-        "Enter Rack Value", 
-        "TR",
+        "Enter Storage Line Side Infrastructure", 
+        "R",
         help="Enter the value for the 'Rack' field (e.g., TR, R, S)."
     )
     
