@@ -1,13 +1,14 @@
 import streamlit as st
 import pandas as pd
 import os
+import math
 import io
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer, Paragraph, PageBreak
 from reportlab.lib.units import cm
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.lib.enums import TA_LEFT
+from reportlab.lib.enums import TA_LEFT, TA_CENTER
 
 # Configure Streamlit page
 st.set_page_config(
@@ -112,7 +113,7 @@ def format_description(desc):
         desc = str(desc)
     return Paragraph(desc, desc_style)
 
-# --- Core Logic Functions (No Changes Here) ---
+# --- Core Logic Functions (UPDATED) ---
 
 def find_required_columns(df):
     """Find essential columns in the DataFrame for processing."""
@@ -139,65 +140,96 @@ def get_unique_bins(df, container_col):
     bins = sorted([c for c in unique_containers.unique() if 'BIN' in c.upper()])
     return bins
 
-def automate_location_assignment(df, rack_input, level_selections, bin_capacities, status_text=None):
+def automate_location_assignment(df, rack_input, level_selections, bin_capacities, container_dimensions, standard_level_dimensions, status_text=None):
     """
-    Processes the DataFrame to assign automated location values based on bin type,
-    capacity, and level selections.
+    Processes the DataFrame to assign automated location values based on dimensions,
+    bin type, capacity, and level selections.
     """
-    part_no_col, desc_col, model_col, station_col, container_col = find_required_columns(df)
+    part_no_col, _, _, _, container_col = find_required_columns(df)
 
     if not part_no_col or not container_col:
-        st.error("❌ Critical columns for 'Part Number' or 'Container Type' could not be found in the file.")
+        st.error("❌ Critical columns for 'Part Number' or 'Container Type' could not be found.")
         return None
-    
+
     if status_text:
         status_text.text(f"Automating with: Part No='{part_no_col}', Container='{container_col}'")
 
-    df_processed = df.copy()
+    # --- Pre-calculate how many bins fit on a standard level ---
+    bins_per_level_config = {}
+    for bin_type, levels in level_selections.items():
+        bin_dim = container_dimensions.get(bin_type)
+        level_dim = standard_level_dimensions.get(bin_type)
 
-    df_processed['Rack'] = rack_input
-    df_processed['Rack No 1st'] = ''
-    df_processed['Rack No 2nd'] = ''
-    df_processed['Level'] = ''
-    df_processed['Cell'] = ''
+        if not bin_dim or not level_dim or bin_dim.get('L', 0) == 0 or bin_dim.get('W', 0) == 0:
+            bins_that_fit = 1 # Default to 1 if dimensions are missing
+        else:
+            # Calculate how many bins fit, assuming simple non-rotated placement
+            fit_l = math.floor(level_dim['L'] / bin_dim['L']) if bin_dim['L'] > 0 else 0
+            fit_w = math.floor(level_dim['W'] / bin_dim['W']) if bin_dim['W'] > 0 else 0
+            bins_that_fit = max(1, fit_l * fit_w) # Ensure at least 1 bin fits
 
-    sorted_unique_bins = get_unique_bins(df_processed, container_col)
-    bin_to_rack_num = {bin_name: index + 1 for index, bin_name in enumerate(sorted_unique_bins)}
+        # Apply this single calculation to all selected levels for this bin type
+        for level in levels:
+            bins_per_level_config[(bin_type, level)] = bins_that_fit
 
-    for bin_type, rack_num in bin_to_rack_num.items():
-        capacity = bin_capacities.get(bin_type, 0)
-        levels = level_selections.get(bin_type, [])
+    # --- Initialize state trackers and output lists ---
+    df_sorted = df.sort_values(by=container_col).reset_index(drop=True)
+    unique_bins = get_unique_bins(df_sorted, container_col)
+    
+    rack_num_for_bin_type = {bin_type: 1 for bin_type in unique_bins}
+    part_counters = {}  # Key: (bin_type, rack_num, level, cell_num), Value: count of parts
+    
+    rack_list, r1_list, r2_list, lvl_list, cell_list = [], [], [], [], []
+
+    # --- Main Loop: Iterate through each part and find a spot ---
+    for _, row in df_sorted.iterrows():
+        bin_type = row[container_col]
         
-        if not capacity or not levels:
+        assigned_levels = level_selections.get(bin_type, [])
+        part_capacity_per_bin = bin_capacities.get(bin_type, 1)
+
+        if not assigned_levels:
+            rack_list.append(rack_input); r1_list.append(''); r2_list.append(''); lvl_list.append(''); cell_list.append('')
             continue
 
-        mask = df_processed[container_col] == bin_type
-        num_parts_in_bin = mask.sum()
-        
-        if num_parts_in_bin == 0:
-            continue
-
-        assigned_levels = []
-        assigned_cells = []
-
-        for i in range(num_parts_in_bin):
-            level_index = (i // capacity) % len(levels)
-            assigned_levels.append(levels[level_index])
+        found_spot = False
+        while not found_spot:
+            current_rack = rack_num_for_bin_type.get(bin_type, 1)
             
-            cell_number = (i % capacity) + 1
-            assigned_cells.append(f"{cell_number:02d}")
+            for level in assigned_levels:
+                max_bins_on_level = bins_per_level_config.get((bin_type, level), 1)
+                
+                for cell in range(1, max_bins_on_level + 1):
+                    key = (bin_type, current_rack, level, cell)
+                    parts_in_this_cell = part_counters.get(key, 0)
+                    
+                    if parts_in_this_cell < part_capacity_per_bin:
+                        part_counters[key] = parts_in_this_cell + 1
+                        rack_num_str = f"{current_rack:02d}"
+                        rack_list.append(rack_input)
+                        r1_list.append(rack_num_str[0])
+                        r2_list.append(rack_num_str[1])
+                        lvl_list.append(level)
+                        cell_list.append(f"{cell:02d}")
+                        found_spot = True
+                        break
+                if found_spot: break
+            
+            if not found_spot:
+                rack_num_for_bin_type[bin_type] += 1
 
-        rack_num_str = f"{rack_num:02d}"
-        df_processed.loc[mask, 'Rack No 1st'] = rack_num_str[0]
-        df_processed.loc[mask, 'Rack No 2nd'] = rack_num_str[1]
-        df_processed.loc[mask, 'Level'] = assigned_levels
-        df_processed.loc[mask, 'Cell'] = assigned_cells
-
+    # --- Assign the generated data and rename columns ---
+    df_processed = df_sorted.copy()
+    df_processed['Rack'] = rack_list
+    df_processed['Rack No 1st'] = r1_list
+    df_processed['Rack No 2nd'] = r2_list
+    df_processed['Level'] = lvl_list
+    df_processed['Cell'] = cell_list
+    
+    part_no_col, desc_col, model_col, station_col, _ = find_required_columns(df)
     rename_dict = {
-        part_no_col: 'Part No',
-        desc_col: 'Description',
-        model_col: 'Bus Model',
-        station_col: 'Station No'
+        part_no_col: 'Part No', desc_col: 'Description',
+        model_col: 'Bus Model', station_col: 'Station No'
     }
     final_columns = {k: v for k, v in rename_dict.items() if k is not None}
     df_processed.rename(columns=final_columns, inplace=True)
@@ -208,24 +240,18 @@ def automate_location_assignment(df, rack_input, level_selections, bin_capacitie
 def create_location_key(row):
     """Create a unique key for grouping by the newly generated location."""
     return '_'.join([
-        str(row.get('Bus Model', '')),
-        str(row.get('Station No', '')),
-        str(row.get('Rack', '')),
-        str(row.get('Rack No 1st', '')),
-        str(row.get('Rack No 2nd', '')),
-        str(row.get('Level', '')),
+        str(row.get('Bus Model', '')), str(row.get('Station No', '')),
+        str(row.get('Rack', '')), str(row.get('Rack No 1st', '')),
+        str(row.get('Rack No 2nd', '')), str(row.get('Level', '')),
         str(row.get('Cell', ''))
     ])
 
 def extract_location_values(row):
     """Extract location values from the processed row's columns."""
     return [
-        str(row.get('Bus Model', '')),
-        str(row.get('Station No', '')),
-        str(row.get('Rack', '')),
-        str(row.get('Rack No 1st', '')),
-        str(row.get('Rack No 2nd', '')),
-        str(row.get('Level', '')),
+        str(row.get('Bus Model', '')), str(row.get('Station No', '')),
+        str(row.get('Rack', '')), str(row.get('Rack No 1st', '')),
+        str(row.get('Rack No 2nd', '')), str(row.get('Level', '')),
         str(row.get('Cell', ''))
     ]
 
@@ -347,7 +373,7 @@ def generate_labels_from_excel_v2(df, progress_bar=None, status_text=None):
         return buffer
     return None
 
-# --- Main Application UI ---
+# --- Main Application UI (UPDATED) ---
 def main():
     st.title("🏷️ Rack Label Generator")
     st.markdown(
@@ -355,28 +381,24 @@ def main():
         "Designed and Developed by Agilomatrix</p>",
         unsafe_allow_html=True
     )
-
     st.markdown("---")
 
     # --- UI Sidebar ---
     st.sidebar.title("📄 Label Options")
     label_type = st.sidebar.selectbox(
-        "Choose Label Format:",
-        ["Single Part", "Multiple Parts"],
-        help="Single Part: One part per location label. Multiple Parts: Up to two parts per location label."
+        "Choose Label Format:", ["Single Part", "Multiple Parts"],
+        help="Single Part: One part per label. Multiple Parts: Up to two parts per label."
     )
 
     st.sidebar.title("⚙️ Automation Settings")
     rack_input = st.sidebar.text_input(
-        "Enter Storage Line Side Infrastructure", 
-        "R",
+        "Enter Storage Line Side Infrastructure", "R",
         help="Enter the static value for the 'Rack' field (e.g., TR, R, S)."
     )
     
     uploaded_file = st.file_uploader(
-        "Choose an Excel or CSV file",
-        type=['xlsx', 'xls', 'csv'],
-        help="Upload your file with Part No, Description, Model, Station No, and Container Type."
+        "Choose an Excel or CSV file", type=['xlsx', 'xls', 'csv'],
+        help="Upload your file with Part No, Description, and Container Type."
     )
 
     if uploaded_file is not None:
@@ -387,11 +409,9 @@ def main():
             with st.expander("📊 File Preview", expanded=False):
                 st.dataframe(df.head(3))
 
-            # --- NEW AND UPDATED: Dynamic UI for Bin Configuration ---
-            level_selections = {}
-            bin_capacities = {}
-            container_dimensions = {} # To store container dimensions
-            level_dimensions = {}     # To store dimensions for each level
+            # --- Simplified Dynamic UI for Bin Configuration ---
+            level_selections, bin_capacities = {}, {}
+            container_dimensions, standard_level_dimensions = {}, {}
 
             _, _, _, _, container_col = find_required_columns(df)
             
@@ -399,85 +419,64 @@ def main():
                 unique_bins = get_unique_bins(df, container_col)
                 if unique_bins:
                     st.sidebar.markdown("---")
-                    st.sidebar.subheader("Bin Configuration")
-                    st.sidebar.info("Set levels, dimensions, and capacity for each bin type.")
+                    st.sidebar.subheader("Bin & Level Configuration")
+                    st.sidebar.info("Set levels and dimensions to automate placement.")
                     
                     for bin_type in unique_bins:
-                        st.sidebar.markdown(f"#### Settings for {bin_type}")
+                        with st.sidebar.expander(f"Settings for {bin_type}", expanded=True):
+                            # 1. Ask for level selection
+                            level_selections[bin_type] = st.multiselect(
+                                "Assignable Levels",
+                                options=['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'],
+                                default=['A', 'B', 'C', 'D'], key=f"lvl_{bin_type}"
+                            )
 
-                        # 1. Ask for level selection
-                        selected_levels = st.sidebar.multiselect(
-                            f"Select Levels for {bin_type}",
-                            options=['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'],
-                            default=['A', 'B', 'C', 'D'],
-                            key=f"lvl_{bin_type}"
-                        )
-                        level_selections[bin_type] = selected_levels
+                            # 2. Ask for STANDARD level dimensions ONCE
+                            st.markdown("**Standard Level Dimensions**")
+                            col1, col2, col3 = st.columns(3)
+                            l_l = col1.number_input("L", min_value=0.1, value=100.0, step=0.1, key=f"std_l_{bin_type}", help="Standard Length for any level")
+                            l_w = col2.number_input("W", min_value=0.1, value=50.0, step=0.1, key=f"std_w_{bin_type}", help="Standard Width for any level")
+                            l_h = col3.number_input("H", min_value=0.1, value=50.0, step=0.1, key=f"std_h_{bin_type}", help="Standard Height for any level")
+                            standard_level_dimensions[bin_type] = {'L': l_l, 'W': l_w, 'H': l_h}
 
-                        # 2. Ask for dimension of selected levels
-                        if selected_levels:
-                            level_dimensions[bin_type] = {}
-                            with st.sidebar.expander(f"Enter Dimensions for Levels in {bin_type}"):
-                                for level in selected_levels:
-                                    st.markdown(f"**Level {level}**")
-                                    # Using columns to place inputs side-by-side
-                                    col1, col2, col3 = st.columns(3)
-                                    with col1:
-                                        l_l = st.number_input("L", min_value=0.0, value=5.0, step=0.1, key=f"l_l_{bin_type}_{level}", help=f"Length for Level {level}")
-                                    with col2:
-                                        l_w = st.number_input("W", min_value=0.0, value=5.0, step=0.1, key=f"l_w_{bin_type}_{level}", help=f"Width for Level {level}")
-                                    with col3:
-                                        l_h = st.number_input("H", min_value=0.0, value=5.0, step=0.1, key=f"l_h_{bin_type}_{level}", help=f"Height for Level {level}")
-                                    level_dimensions[bin_type][level] = {'L': l_l, 'W': l_w, 'H': l_h}
-                        
-                        # 3. Ask for container type dimensions
-                        with st.sidebar.expander(f"Enter Dimensions for Container '{bin_type}'"):
-                             col1, col2, col3 = st.columns(3)
-                             with col1:
-                                c_l = st.number_input("L", min_value=0.0, value=10.0, step=0.1, key=f"c_l_{bin_type}", help=f"Length for {bin_type}")
-                             with col2:
-                                c_w = st.number_input("W", min_value=0.0, value=10.0, step=0.1, key=f"c_w_{bin_type}", help=f"Width for {bin_type}")
-                             with col3:
-                                c_h = st.number_input("H", min_value=0.0, value=10.0, step=0.1, key=f"c_h_{bin_type}", help=f"Height for {bin_type}")
-                             container_dimensions[bin_type] = {'L': c_l, 'W': c_w, 'H': c_h}
-
-                        # 4. Ask for container type capacity
-                        bin_capacities[bin_type] = st.sidebar.number_input(
-                            f"Capacity of {bin_type}",
-                            min_value=1,
-                            value=10,
-                            step=1,
-                            key=f"cap_{bin_type}",
-                            help=f"How many parts fit into one {bin_type}?"
-                        )
-                        st.sidebar.markdown("---")
+                            # 3. Ask for container dimensions ONCE
+                            st.markdown(f"**'{bin_type}' Container Dimensions**")
+                            c_col1, c_col2, c_col3 = st.columns(3)
+                            c_l = c_col1.number_input("L", min_value=0.1, value=40.0, step=0.1, key=f"c_l_{bin_type}", help=f"Length of {bin_type}")
+                            c_w = c_col2.number_input("W", min_value=0.1, value=40.0, step=0.1, key=f"c_w_{bin_type}", help=f"Width of {bin_type}")
+                            c_h = c_col3.number_input("H", min_value=0.1, value=40.0, step=0.1, key=f"c_h_{bin_type}", help=f"Height of {bin_type}")
+                            container_dimensions[bin_type] = {'L': c_l, 'W': c_w, 'H': c_h}
+                            
+                            # 4. Ask for part capacity
+                            bin_capacities[bin_type] = st.number_input(
+                                f"Capacity of {bin_type} (parts)",
+                                min_value=1, value=10, step=1, key=f"cap_{bin_type}",
+                                help=f"How many individual parts fit inside one {bin_type}?"
+                            )
                 else:
                     st.warning("No values containing 'Bin' found in the 'Container Type' column.")
             else:
-                st.error("Could not find a 'Container Type' column in the file. Automation is disabled.")
+                st.error("Could not find a 'Container Type' column. Automation is disabled.")
 
             # --- PDF Generation ---
             if st.button("🚀 Generate PDF Labels", type="primary"):
-                is_ready = True
-                if not rack_input:
-                    st.warning("Please enter a value for the Rack.")
-                    is_ready = False
-                
-                if is_ready:
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
+                if not all([rack_input, level_selections, bin_capacities, container_dimensions, standard_level_dimensions]):
+                    st.warning("Please configure all settings in the sidebar before generating.")
+                else:
+                    progress_bar, status_text = st.progress(0), st.empty()
                     try:
-                        status_text.text("Automating line locations...")
-                        df_processed = automate_location_assignment(df, rack_input, level_selections, bin_capacities, status_text)
+                        status_text.text("Automating line locations based on dimensions...")
+                        df_processed = automate_location_assignment(
+                            df, rack_input, level_selections, bin_capacities, 
+                            container_dimensions, standard_level_dimensions, status_text
+                        )
                         
-                        if df_processed is not None:
-                            if label_type == "Single Part":
-                                pdf_buffer = generate_labels_from_excel_v2(df_processed, progress_bar, status_text)
-                                filename = f"{os.path.splitext(uploaded_file.name)[0]}_single_part_labels.pdf"
-                            else:
-                                pdf_buffer = generate_labels_from_excel_v1(df_processed, progress_bar, status_text)
-                                filename = f"{os.path.splitext(uploaded_file.name)[0]}_multi_part_labels.pdf"
+                        if df_processed is not None and not df_processed.empty:
+                            gen_func = generate_labels_from_excel_v2 if label_type == "Single Part" else generate_labels_from_excel_v1
+                            file_suffix = "single_part" if label_type == "Single Part" else "multi_part"
+                            
+                            pdf_buffer = gen_func(df_processed, progress_bar, status_text)
+                            filename = f"{os.path.splitext(uploaded_file.name)[0]}_{file_suffix}_labels.pdf"
                             
                             if pdf_buffer:
                                 status_text.text("✅ PDF generated successfully!")
@@ -488,37 +487,28 @@ def main():
                                     st.metric("Unique Locations Created", unique_locations)
                                     st.metric("Labels Generated", unique_locations)
                             else:
-                                st.error("❌ Failed to generate PDF. Check file data and columns.")
-                                
+                                st.error("❌ Failed to generate PDF. Check file data.")
+                        else:
+                            st.error("❌ Location assignment failed. The processed data is empty.")      
                     except Exception as e:
-                        st.error(f"❌ An unexpected error occurred: {str(e)}")
+                        st.error(f"❌ An unexpected error occurred: {e}")
                     finally:
-                        progress_bar.empty()
-                        status_text.empty()
-
+                        progress_bar.empty(); status_text.empty()
         except Exception as e:
-            st.error(f"❌ Error reading file: {str(e)}")
-
+            st.error(f"❌ Error reading file: {e}")
     else:
         st.info("👆 Upload a file to begin.")
-        
         with st.expander("📋 Instructions", expanded=True):
             st.markdown("""
             ### How to use this tool:
-            1.  **Select Label Format**: Choose between **Single Part** or **Multiple Parts** in the sidebar.
-            2.  **Enter Base Rack**: Enter the constant **Rack** value (e.g., TR).
-            3.  **Upload your file**: Choose an Excel or CSV file.
-            4.  **Configure Bins**: The tool automatically finds bin types (e.g., Bin A) from your file. New options will appear in the sidebar for each bin.
-                -   Select the **levels** (e.g., A, B, C) for that bin.
-                -   Expand the menus to enter the **dimensions** for each level and for the container itself.
-                -   Enter the **capacity** (how many parts fit in one bin).
-            5.  **Generate & Download**: Click the generate button to create and download your PDF.
-            
-            #### Required Columns in Your File:
-            The tool will try to find these columns even if the names are slightly different.
-            -   **Part Number** (e.g., `PART NO`, `Part Number`)
-            -   **Container Type** (e.g., `CONTAINER TYPE`). This column must contain values like "Bin A", "Bin B", etc., for the automation to work.
-            -   **Optional but recommended:** `Description`, `Bus Model`, `Station No`.
+            1.  **Select Label Format & Enter Rack**: Choose your label style and enter the base **Rack** value (e.g., R).
+            2.  **Upload Your File**: It must contain columns for Part Number and Container Type.
+            3.  **Configure Bins**: For each bin type found in your file:
+                -   Select all **Levels** (e.g., A, B, C) where this bin can be placed.
+                -   Enter the **Standard Level Dimensions** ONE time. This will apply to all selected levels.
+                -   Enter the **Container Dimensions** for the bin itself.
+                -   Enter the part **Capacity** (how many parts fit *inside* one bin).
+            4.  **Generate & Download**: Click the generate button to create your PDF.
             """)
 
 if __name__ == "__main__":
