@@ -16,7 +16,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- Style Definitions (Reverted to your original) ---
+# --- Style Definitions ---
 bold_style_v1 = ParagraphStyle(
     name='Bold_v1', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=20, spaceBefore=2, spaceAfter=2
 )
@@ -29,7 +29,7 @@ desc_style = ParagraphStyle(
     name='Description', fontName='Helvetica', fontSize=20, alignment=TA_LEFT, leading=16, spaceBefore=2, spaceAfter=2
 )
 
-# --- Formatting Functions (Reverted to your original) ---
+# --- Formatting Functions ---
 def format_part_no_v1(part_no):
     if not part_no or not isinstance(part_no, str): part_no = str(part_no)
     if len(part_no) > 5:
@@ -56,7 +56,7 @@ def format_description(desc):
     if not desc or not isinstance(desc, str): desc = str(desc)
     return Paragraph(desc, desc_style)
 
-# --- Advanced Core Logic Functions (Kept from previous update) ---
+# --- Advanced Core Logic Functions ---
 def find_required_columns(df):
     cols = {col.upper().strip(): col for col in df.columns}
     part_no_key = next((k for k in cols if 'PART' in k and ('NO' in k or 'NUM' in k)), None)
@@ -131,8 +131,14 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
             for level in config['levels']:
                 rack_num_val = ''.join(filter(str.isdigit, rack_name))
                 rack_num_2nd = rack_num_val[1] if len(rack_num_val) > 1 else rack_num_val[0]
-                existing_parts_mask = (final_df['Rack No 2nd'] == rack_num_2nd) & (final_df['Level'] == level) & (final_df['Container'] == container_type)
-                num_existing = len(final_df[existing_parts_mask])
+                
+                # Check if final_df is not empty before filtering
+                if not final_df.empty:
+                    existing_parts_mask = (final_df['Rack No 2nd'] == rack_num_2nd) & (final_df['Level'] == level) & (final_df['Container'] == container_type)
+                    num_existing = len(final_df[existing_parts_mask])
+                else:
+                    num_existing = 0
+
                 for i in range(num_existing, capacity):
                     blank_rows.append({
                         'Part No': 'EMPTY', 'Description': '', 'Bus Model': '', 'Station No': '', 'Container': container_type,
@@ -152,7 +158,7 @@ def create_location_key(row):
 def extract_location_values(row):
     return [str(row.get(c, '')) for c in ['Bus Model', 'Station No', 'Rack', 'Rack No 1st', 'Rack No 2nd', 'Level', 'Cell']]
 
-# --- PDF Generation Functions (Reverted to your original for perfect styling) ---
+# --- PDF Generation Functions (WITH SPACING FIX) ---
 def generate_labels_from_excel_v1(df, progress_bar=None, status_text=None):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1*cm, bottomMargin=1*cm, leftMargin=1.5*cm, rightMargin=1.5*cm)
@@ -177,12 +183,10 @@ def generate_labels_from_excel_v1(df, progress_bar=None, status_text=None):
         
         location_values = extract_location_values(part1)
         location_data = [['Line Location'] + location_values]
-        col_proportions = [1.8, 2.7, 1.3, 1.3, 1.3, 1.3, 1.3] # Your original proportions
+        col_proportions = [1.8, 2.7, 1.3, 1.3, 1.3, 1.3, 1.3]
         location_widths = [4 * cm] + [w * (11 * cm) / sum(col_proportions) for w in col_proportions]
-        
         location_table = Table(location_data, colWidths=location_widths, rowHeights=0.8*cm)
         
-        # Styles
         part_style = TableStyle([('GRID', (0, 0), (-1, -1), 1, colors.black), ('ALIGN', (0, 0), (0, -1), 'CENTER'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'), ('FONTSIZE', (0, 0), (0, -1), 16)])
         part_table1.setStyle(part_style)
         part_table2.setStyle(part_style)
@@ -192,7 +196,13 @@ def generate_labels_from_excel_v1(df, progress_bar=None, status_text=None):
         for j, color in enumerate(location_colors): location_style.append(('BACKGROUND', (j+1, 0), (j+1, 0), color))
         location_table.setStyle(TableStyle(location_style))
         
-        elements.extend([part_table1, part_table2, location_table, Spacer(1, 0.5 * cm)])
+        elements.append(part_table1)
+        elements.append(Spacer(1, 0.3 * cm))
+        elements.append(part_table2)
+        # --- FIX: Added Spacer for vertical gap ---
+        elements.append(Spacer(1, 0.3 * cm))
+        elements.append(location_table)
+        elements.append(Spacer(1, 0.2 * cm))
         label_count += 1
         
     if elements: doc.build(elements)
@@ -220,12 +230,10 @@ def generate_labels_from_excel_v2(df, progress_bar=None, status_text=None):
         
         location_values = extract_location_values(part1)
         location_data = [['Line Location'] + location_values]
-        col_widths = [1.7, 2.9, 1.3, 1.2, 1.3, 1.3, 1.3] # Your original proportions
+        col_widths = [1.7, 2.9, 1.3, 1.2, 1.3, 1.3, 1.3]
         location_widths = [4 * cm] + [w * (11 * cm) / sum(col_widths) for w in col_widths]
-
         location_table = Table(location_data, colWidths=location_widths, rowHeights=0.9*cm)
         
-        # Styles
         part_table.setStyle(TableStyle([('GRID', (0, 0), (-1, -1), 1, colors.black), ('ALIGN', (0, 0), (0, -1), 'CENTER'), ('ALIGN', (1, 1), (1, -1), 'LEFT'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('LEFTPADDING', (0, 0), (-1, -1), 5), ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'), ('FONTSIZE', (0, 0), (0, -1), 16)]))
         
         location_colors = [colors.HexColor('#E9967A'), colors.HexColor('#ADD8E6'), colors.HexColor('#90EE90'), colors.HexColor('#FFD700'), colors.HexColor('#ADD8E6'), colors.HexColor('#E9967A'), colors.HexColor('#90EE90')]
@@ -233,14 +241,18 @@ def generate_labels_from_excel_v2(df, progress_bar=None, status_text=None):
         for j, color in enumerate(location_colors): location_style.append(('BACKGROUND', (j+1, 0), (j+1, 0), color))
         location_table.setStyle(TableStyle(location_style))
         
-        elements.extend([part_table, location_table, Spacer(1, 0.5 * cm)])
+        elements.append(part_table)
+        # --- FIX: Added Spacer for vertical gap ---
+        elements.append(Spacer(1, 0.3 * cm))
+        elements.append(location_table)
+        elements.append(Spacer(1, 0.2 * cm))
         label_count += 1
         
     if elements: doc.build(elements)
     buffer.seek(0)
     return buffer
 
-# --- Main Application UI (With Advanced Sidebar) ---
+# --- Main Application UI ---
 def main():
     st.title("🏷️ Rack Label Generator")
     st.markdown("<p style='font-style:italic;'>Designed by Agilomatrix</p>", unsafe_allow_html=True)
