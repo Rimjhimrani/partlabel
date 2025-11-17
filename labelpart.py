@@ -140,7 +140,8 @@ def create_location_key(row):
     return '_'.join([str(row.get(c, '')) for c in ['Rack', 'Rack No 1st', 'Rack No 2nd', 'Level', 'Cell']])
 
 def extract_location_values(row):
-    return [str(row.get(c, '')) for c in ['Bus Model', 'Station No', 'Rack', 'Rack No 1st', 'Rack No 2nd', 'Level', 'Cell']])
+    # --- THIS IS THE CORRECTED LINE ---
+    return [str(row.get(c, '')) for c in ['Bus Model', 'Station No', 'Rack', 'Rack No 1st', 'Rack No 2nd', 'Level', 'Cell']]
 
 # --- PDF Generation Functions ---
 def generate_labels_from_excel_v1(df, progress_bar=None, status_text=None):
