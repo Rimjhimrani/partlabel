@@ -85,77 +85,62 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
     df_processed.rename(columns={k: v for k, v in rename_dict.items() if k}, inplace=True)
     df_processed.sort_values(by=['Station No', 'Container'], inplace=True)
 
-    all_assigned_parts = []
+    final_df_parts = []
     
     # Process each station independently
     for station_no, station_group in df_processed.groupby('Station No', sort=False):
         if status_text: status_text.text(f"Processing station: {station_no}...")
         
-        # 1. Create a master list of all available slots for this station based on the new level-specific capacity
+        # 1. Create a master list of all available generic slots for this station
         available_slots = []
         for rack_name, config in sorted(rack_configs.items()):
             rack_num_val = ''.join(filter(str.isdigit, rack_name))
             rack_num_1st = rack_num_val[0] if len(rack_num_val) > 1 else '0'
             rack_num_2nd = rack_num_val[1] if len(rack_num_val) > 1 else rack_num_val[0]
             
-            sorted_levels = sorted(config.get('levels', []))
-            
-            for level in sorted_levels:
-                level_specific_capacities = config.get('level_capacities', {}).get(level, {})
-                
-                for container_type, capacity in sorted(level_specific_capacities.items()):
-                    if capacity > 0:
-                        for i in range(capacity):
-                            slot = {
-                                'Container': container_type, 'Level': level, 'Cell': f"{i + 1:02d}",
-                                'Rack': base_rack_id, 'Rack No 1st': rack_num_1st, 'Rack No 2nd': rack_num_2nd,
-                                'is_used': False 
-                            }
-                            available_slots.append(slot)
+            for level, capacity in sorted(config.get('level_capacities', {}).items()):
+                for i in range(capacity):
+                    slot = {
+                        'Level': level, 'Cell': f"{i + 1:02d}",
+                        'Rack': base_rack_id, 'Rack No 1st': rack_num_1st, 'Rack No 2nd': rack_num_2nd,
+                    }
+                    available_slots.append(slot)
         
-        # 2. Assign parts to the available slots
+        # 2. Assign parts to the available slots sequentially
         parts_to_assign = station_group.to_dict('records')
-        unassigned_parts_count = 0
         
-        for part in parts_to_assign:
-            part_container_type = part['Container']
-            
-            assigned = False
-            for slot in available_slots:
-                if not slot['is_used'] and slot['Container'] == part_container_type:
-                    part.update({k: v for k, v in slot.items() if k not in ['is_used', 'Container']})
-                    all_assigned_parts.append(part)
-                    slot['is_used'] = True
-                    assigned = True
-                    break
-            
-            if not assigned:
-                unassigned_parts_count += 1
-        
-        if unassigned_parts_count > 0:
-            st.warning(f"⚠️ For station {station_no}, could not assign locations for {unassigned_parts_count} parts due to insufficient capacity.")
+        if len(parts_to_assign) > len(available_slots):
+            unassigned_count = len(parts_to_assign) - len(available_slots)
+            st.warning(f"⚠️ For station {station_no}, could not assign locations for {unassigned_count} parts due to insufficient capacity.")
+            parts_to_assign = parts_to_assign[:len(available_slots)]
+
+        for i, part in enumerate(parts_to_assign):
+            slot = available_slots[i]
+            part.update(slot)
+            final_df_parts.append(part)
 
         # 3. Create 'EMPTY' records for all remaining unused slots
-        for slot in available_slots:
-            if not slot['is_used']:
-                empty_part = {
-                    'Part No': 'EMPTY', 'Description': '', 'Bus Model': '', 'Station No': station_no,
-                    'Container': slot['Container'], 'Level': slot['Level'], 'Cell': slot['Cell'],
-                    'Rack': slot['Rack'], 'Rack No 1st': slot['Rack No 1st'], 'Rack No 2nd': slot['Rack No 2nd']
-                }
-                all_assigned_parts.append(empty_part)
+        num_parts_assigned = len(parts_to_assign)
+        for i in range(num_parts_assigned, len(available_slots)):
+            slot = available_slots[i]
+            empty_part = {
+                'Part No': 'EMPTY', 'Description': '', 'Bus Model': '', 'Station No': station_no, 'Container': '',
+                'Level': slot['Level'], 'Cell': slot['Cell'], 'Rack': slot['Rack'], 
+                'Rack No 1st': slot['Rack No 1st'], 'Rack No 2nd': slot['Rack No 2nd']
+            }
+            final_df_parts.append(empty_part)
 
-    if not all_assigned_parts:
+    if not final_df_parts:
         return pd.DataFrame()
 
-    return pd.DataFrame(all_assigned_parts)
+    return pd.DataFrame(final_df_parts)
 
 
 def create_location_key(row):
     return '_'.join([str(row.get(c, '')) for c in ['Rack', 'Rack No 1st', 'Rack No 2nd', 'Level', 'Cell']])
 
 def extract_location_values(row):
-    return [str(row.get(c, '')) for c in ['Bus Model', 'Station No', 'Rack', 'Rack No 1st', 'Rack No 2nd', 'Level', 'Cell']]
+    return [str(row.get(c, '')) for c in ['Bus Model', 'Station No', 'Rack', 'Rack No 1st', 'Rack No 2nd', 'Level', 'Cell']])
 
 # --- PDF Generation Functions ---
 def generate_labels_from_excel_v1(df, progress_bar=None, status_text=None):
@@ -295,11 +280,10 @@ def main():
                     st.sidebar.text_input(f"Dimensions for {container}", key=f"bindim_{container}", placeholder="e.g., 300x200x150mm")
                 
                 st.sidebar.markdown("---")
-                st.sidebar.subheader("Rack & Bin Configuration")
-                num_racks = st.sidebar.number_input("Number of Racks", min_value=1, value=max(1, len(unique_containers)), step=1)
+                st.sidebar.subheader("Rack & Level Configuration")
+                num_racks = st.sidebar.number_input("Number of Racks", min_value=1, value=1, step=1)
 
                 rack_configs = {}
-                sorted_unique_containers = sorted(list(unique_containers))
 
                 for i in range(num_racks):
                     rack_name = f"Rack {i+1:02d}"
@@ -311,23 +295,17 @@ def main():
                         level_capacities = {}
                         if levels:
                             st.markdown("---")
-                            st.write("**Set Capacity per Level**")
+                            st.write("**Set Total Capacity per Level**")
 
                         for level in levels:
-                            level_capacities[level] = {}
-                            st.markdown(f"**Level {level}**")
-                            # Use columns for a more compact layout
-                            cols = st.columns(len(sorted_unique_containers))
-                            for idx, bin_type in enumerate(sorted_unique_containers):
-                                with cols[idx]:
-                                    capacity = st.number_input(
-                                        f"{bin_type}", 
-                                        min_value=0, 
-                                        value=0, 
-                                        step=1, 
-                                        key=f"cap_{rack_name}_{level}_{bin_type}"
-                                    )
-                                    level_capacities[level][bin_type] = capacity
+                            capacity = st.number_input(
+                                f"Capacity for Level {level}", 
+                                min_value=0, 
+                                value=10, 
+                                step=1, 
+                                key=f"cap_{rack_name}_{level}"
+                            )
+                            level_capacities[level] = capacity
                         
                         rack_configs[rack_name] = {
                             'dimensions': rack_dim, 
