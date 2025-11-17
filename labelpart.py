@@ -18,7 +18,7 @@ st.set_page_config(
 
 # --- Style Definitions ---
 bold_style_v1 = ParagraphStyle(
-    name='Bold_v1', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=14, spaceBefore=2, spaceAfter=2
+    name='Bold_v1', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=20, spaceBefore=2, spaceAfter=2
 )
 
 bold_style_v2 = ParagraphStyle(
@@ -184,15 +184,19 @@ def generate_labels_from_excel_v1(df, progress_bar=None, status_text=None):
     df_grouped = df.groupby('location_key')
     total_locations = len(df_grouped)
     label_count = 0
+    label_summary = {}
 
     for i, (location_key, group) in enumerate(df_grouped):
         if progress_bar: progress_bar.progress(int((i / total_locations) * 100))
         if status_text: status_text.text(f"Processing V1 Label {i+1}/{total_locations}")
         
         part1 = group.iloc[0]
-        # --- FIX: Skip generation for empty labels ---
         if str(part1['Part No']).upper() == 'EMPTY':
             continue
+
+        rack_num = f"{part1.get('Rack No 1st', '0')}{part1.get('Rack No 2nd', '0')}"
+        rack_key = f"Rack {rack_num}"
+        label_summary[rack_key] = label_summary.get(rack_key, 0) + 1
 
         if label_count > 0 and label_count % 4 == 0: elements.append(PageBreak())
         
@@ -212,7 +216,7 @@ def generate_labels_from_excel_v1(df, progress_bar=None, status_text=None):
         part_table2.setStyle(part_style)
         
         location_colors = [colors.HexColor('#E9967A'), colors.HexColor('#ADD8E6'), colors.HexColor('#90EE90'), colors.HexColor('#FFD700'), colors.HexColor('#ADD8E6'), colors.HexColor('#E9967A'), colors.HexColor('#90EE90')]
-        location_style = [('GRID', (0, 0), (-1, -1), 1, colors.black), ('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'), ('FONTSIZE', (0, 0), (0, 0), 16), ('FONTSIZE', (1, 0), (-1, -1), 14)]
+        location_style = [('GRID', (0, 0), (-1, -1), 1, colors.black), ('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'), ('FONTSIZE', (0, 0), (0, 0), 16), ('FONTSIZE', (1, 0), (-1, -1), 14)]
         for j, color in enumerate(location_colors): location_style.append(('BACKGROUND', (j+1, 0), (j+1, 0), color))
         location_table.setStyle(TableStyle(location_style))
         
@@ -226,7 +230,7 @@ def generate_labels_from_excel_v1(df, progress_bar=None, status_text=None):
         
     if elements: doc.build(elements)
     buffer.seek(0)
-    return buffer
+    return buffer, label_summary
 
 def generate_labels_from_excel_v2(df, progress_bar=None, status_text=None):
     buffer = io.BytesIO()
@@ -238,15 +242,19 @@ def generate_labels_from_excel_v2(df, progress_bar=None, status_text=None):
     df_grouped = df.groupby('location_key')
     total_locations = len(df_grouped)
     label_count = 0
+    label_summary = {}
 
     for i, (location_key, group) in enumerate(df_grouped):
         if progress_bar: progress_bar.progress(int((i / total_locations) * 100))
         if status_text: status_text.text(f"Processing V2 Label {i+1}/{total_locations}")
 
         part1 = group.iloc[0]
-        # --- FIX: Skip generation for empty labels ---
         if str(part1['Part No']).upper() == 'EMPTY':
             continue
+        
+        rack_num = f"{part1.get('Rack No 1st', '0')}{part1.get('Rack No 2nd', '0')}"
+        rack_key = f"Rack {rack_num}"
+        label_summary[rack_key] = label_summary.get(rack_key, 0) + 1
             
         if label_count > 0 and label_count % 4 == 0: elements.append(PageBreak())
 
@@ -273,7 +281,7 @@ def generate_labels_from_excel_v2(df, progress_bar=None, status_text=None):
         
     if elements: doc.build(elements)
     buffer.seek(0)
-    return buffer
+    return buffer, label_summary
 
 # --- Main Application UI ---
 def main():
@@ -324,11 +332,21 @@ def main():
                         df_processed = automate_location_assignment(df, base_rack_id, rack_configs, status_text)
                         if df_processed is not None and not df_processed.empty:
                             gen_func = generate_labels_from_excel_v2 if label_type == "Single Part" else generate_labels_from_excel_v1
-                            pdf_buffer = gen_func(df_processed, progress_bar, status_text)
+                            pdf_buffer, label_summary = gen_func(df_processed, progress_bar, status_text)
+                            
                             if pdf_buffer:
-                                status_text.text("✅ PDF generated successfully!")
+                                total_labels = sum(label_summary.values())
+                                status_text.text(f"✅ PDF with {total_labels} labels generated successfully!")
                                 file_name = f"{os.path.splitext(uploaded_file.name)[0]}_{label_type.lower().replace(' ','_')}_labels.pdf"
                                 st.download_button(label="📥 Download PDF", data=pdf_buffer.getvalue(), file_name=file_name, mime="application/pdf")
+
+                                if total_labels > 0:
+                                    st.markdown("---")
+                                    st.subheader("📊 Generation Summary")
+                                    st.markdown(f"A total of **{total_labels}** labels have been generated. Here is the breakdown by location:")
+                                    summary_df = pd.DataFrame(list(label_summary.items()), columns=['Rack', 'Number of Labels'])
+                                    summary_df = summary_df.sort_values(by='Rack').reset_index(drop=True)
+                                    st.table(summary_df)
                         else:
                             st.error("❌ No data was processed. Check rack capacities and level selections.")
                     except Exception as e:
