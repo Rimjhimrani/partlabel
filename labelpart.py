@@ -83,66 +83,91 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
         model_col: 'Bus Model', station_col: 'Station No', container_col: 'Container'
     }
     df_processed.rename(columns={k: v for k, v in rename_dict.items() if k}, inplace=True)
-    
     df_processed.sort_values(by=['Station No', 'Container'], inplace=True)
 
     all_assigned_parts = []
-    
-    for station_no, station_group in df_processed.groupby('Station No', sort=False):
-        rack_fill_status = {name: {ctype: {'level_idx': 0, 'cell_count': 0} for ctype in rack_configs[name]['capacities']} for name in rack_configs}
-        
-        for container_type, group in station_group.groupby('Container'):
-            parts_to_assign = group.to_dict('records')
-            
-            eligible_racks = [
-                name for name, config in rack_configs.items() if config['capacities'].get(container_type, 0) > 0
-            ]
-            if not eligible_racks: continue
-            
-            current_rack_idx = 0
-            for part in parts_to_assign:
-                assigned = False
-                while not assigned and current_rack_idx < len(eligible_racks):
-                    rack_name = eligible_racks[current_rack_idx]
-                    config = rack_configs[rack_name]
-                    status = rack_fill_status[rack_name][container_type]
-                    
-                    capacity = config['capacities'].get(container_type, 0)
-                    levels = config['levels']
-                    
-                    if status['cell_count'] >= capacity:
-                        status['cell_count'] = 0
-                        status['level_idx'] += 1
-                    
-                    if not levels or status['level_idx'] >= len(levels):
-                        current_rack_idx += 1
-                        continue
+    unassigned_parts_count = 0
 
-                    rack_num_str = ''.join(filter(str.isdigit, rack_name))
-                    part.update({
-                        'Rack': base_rack_id,
-                        'Rack No 1st': rack_num_str[0] if len(rack_num_str) > 1 else '0',
-                        'Rack No 2nd': rack_num_str[1] if len(rack_num_str) > 1 else rack_num_str[0],
-                        'Level': levels[status['level_idx']],
-                        'Cell': f"{(status['cell_count'] % capacity) + 1:02d}"
-                    })
-                    all_assigned_parts.append(part)
-                    
-                    status['cell_count'] += 1
-                    assigned = True
+    # Process group by group based on Station No
+    for station_no, station_group in df_processed.groupby('Station No', sort=False):
+        # State pointers for the current station, tracking the next available slot for each container type
+        assignment_pointers = {
+            ctype: {'rack_idx': 0, 'level_idx': 0, 'cell_count': 0}
+            for ctype in station_group['Container'].unique()
+        }
+        
+        parts_to_assign = station_group.to_dict('records')
+
+        for part in parts_to_assign:
+            container_type = part['Container']
+            pointer = assignment_pointers[container_type]
+            
+            eligible_racks = [name for name, config in rack_configs.items() if config['capacities'].get(container_type, 0) > 0]
+            if not eligible_racks:
+                unassigned_parts_count += 1
+                continue
+
+            assigned = False
+            while not assigned:
+                # Check if we have run out of racks for this container type
+                if pointer['rack_idx'] >= len(eligible_racks):
+                    unassigned_parts_count += 1
+                    assigned = True # Mark as "assigned" to exit the loop, even though it's unplaced
+                    continue
+
+                rack_name = eligible_racks[pointer['rack_idx']]
+                config = rack_configs[rack_name]
+                capacity = config['capacities'].get(container_type, 0)
+                levels = config['levels']
+
+                # Check if the current rack has levels or capacity
+                if not levels or capacity == 0:
+                    pointer['rack_idx'] += 1
+                    pointer['level_idx'] = 0
+                    pointer['cell_count'] = 0
+                    continue
+
+                # If current level is full, move to the next level
+                if pointer['cell_count'] >= capacity:
+                    pointer['cell_count'] = 0
+                    pointer['level_idx'] += 1
+
+                # If all levels in the current rack are full, move to the next rack
+                if pointer['level_idx'] >= len(levels):
+                    pointer['rack_idx'] += 1
+                    pointer['level_idx'] = 0
+                    pointer['cell_count'] = 0
+                    continue
+
+                # --- A valid slot is found, assign the location ---
+                rack_num_str = ''.join(filter(str.isdigit, rack_name))
+                part.update({
+                    'Rack': base_rack_id,
+                    'Rack No 1st': rack_num_str[0] if len(rack_num_str) > 1 else '0',
+                    'Rack No 2nd': rack_num_str[1] if len(rack_num_str) > 1 else rack_num_str[0],
+                    'Level': levels[pointer['level_idx']],
+                    'Cell': f"{pointer['cell_count'] + 1:02d}"
+                })
+                all_assigned_parts.append(part)
+                
+                # Increment the cell count for the next part of the same type
+                pointer['cell_count'] += 1
+                assigned = True
+
+    if unassigned_parts_count > 0:
+        st.warning(f"⚠️ Could not assign locations for {unassigned_parts_count} parts due to insufficient capacity.")
 
     final_df = pd.DataFrame(all_assigned_parts)
     if status_text: status_text.text("Generating blank locations...")
     
     blank_rows = []
     for rack_name, config in rack_configs.items():
+        rack_num_val = ''.join(filter(str.isdigit, rack_name))
+        rack_num_1st = rack_num_val[0] if len(rack_num_val) > 1 else '0'
+        rack_num_2nd = rack_num_val[1] if len(rack_num_val) > 1 else rack_num_val[0]
         for container_type, capacity in config['capacities'].items():
             if capacity == 0: continue
             for level in config['levels']:
-                rack_num_val = ''.join(filter(str.isdigit, rack_name))
-                rack_num_1st = rack_num_val[0] if len(rack_num_val) > 1 else '0'
-                rack_num_2nd = rack_num_val[1] if len(rack_num_val) > 1 else rack_num_val[0]
-                
                 num_existing = 0
                 if not final_df.empty:
                     existing_parts_mask = (
@@ -156,9 +181,7 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
                 for i in range(num_existing, capacity):
                     blank_rows.append({
                         'Part No': 'EMPTY', 'Description': '', 'Bus Model': '', 'Station No': '', 'Container': container_type,
-                        'Rack': base_rack_id,
-                        'Rack No 1st': rack_num_1st,
-                        'Rack No 2nd': rack_num_2nd,
+                        'Rack': base_rack_id, 'Rack No 1st': rack_num_1st, 'Rack No 2nd': rack_num_2nd,
                         'Level': level, 'Cell': f"{i + 1:02d}"
                     })
     
@@ -166,6 +189,7 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
         final_df = pd.concat([final_df, pd.DataFrame(blank_rows)], ignore_index=True)
         
     return final_df
+
 
 def create_location_key(row):
     return '_'.join([str(row.get(c, '')) for c in ['Rack', 'Rack No 1st', 'Rack No 2nd', 'Level', 'Cell']])
