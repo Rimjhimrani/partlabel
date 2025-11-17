@@ -18,7 +18,7 @@ st.set_page_config(
 
 # --- Style Definitions ---
 bold_style_v1 = ParagraphStyle(
-    name='Bold_v1', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=20, spaceBefore=2, spaceAfter=2
+    name='Bold_v1', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=14, spaceBefore=2, spaceAfter=2
 )
 
 bold_style_v2 = ParagraphStyle(
