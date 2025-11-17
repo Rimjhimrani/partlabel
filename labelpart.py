@@ -18,7 +18,7 @@ st.set_page_config(
 
 # --- Style Definitions ---
 bold_style_v1 = ParagraphStyle(
-    name='Bold_v1', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=18, spaceBefore=2, spaceAfter=2
+    name='Bold_v1', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=20, spaceBefore=2, spaceAfter=2
 )
 
 bold_style_v2 = ParagraphStyle(
@@ -84,17 +84,13 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
     }
     df_processed.rename(columns={k: v for k, v in rename_dict.items() if k}, inplace=True)
     
-    # Sort by Station, then by Container to process in order
     df_processed.sort_values(by=['Station No', 'Container'], inplace=True)
 
     all_assigned_parts = []
     
-    # Process group by group based on Station No
     for station_no, station_group in df_processed.groupby('Station No', sort=False):
-        # Reset rack status for each new station
         rack_fill_status = {name: {ctype: {'level_idx': 0, 'cell_count': 0} for ctype in rack_configs[name]['capacities']} for name in rack_configs}
         
-        # Process each container type within the station
         for container_type, group in station_group.groupby('Container'):
             parts_to_assign = group.to_dict('records')
             
@@ -106,7 +102,6 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
             current_rack_idx = 0
             for part in parts_to_assign:
                 assigned = False
-                # Loop through eligible racks until the part is assigned
                 while not assigned and current_rack_idx < len(eligible_racks):
                     rack_name = eligible_racks[current_rack_idx]
                     config = rack_configs[rack_name]
@@ -115,17 +110,14 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
                     capacity = config['capacities'].get(container_type, 0)
                     levels = config['levels']
                     
-                    # If current level is full, move to the next level
                     if status['cell_count'] >= capacity:
                         status['cell_count'] = 0
                         status['level_idx'] += 1
                     
-                    # If all levels in the rack are full, move to the next rack
                     if not levels or status['level_idx'] >= len(levels):
                         current_rack_idx += 1
                         continue
 
-                    # Assign location details to the part
                     rack_num_str = ''.join(filter(str.isdigit, rack_name))
                     part.update({
                         'Rack': base_rack_id,
@@ -143,7 +135,6 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
     if status_text: status_text.text("Generating blank locations...")
     
     blank_rows = []
-    # Generate blank rows for all remaining empty slots in every rack
     for rack_name, config in rack_configs.items():
         for container_type, capacity in config['capacities'].items():
             if capacity == 0: continue
@@ -197,9 +188,14 @@ def generate_labels_from_excel_v1(df, progress_bar=None, status_text=None):
     for i, (location_key, group) in enumerate(df_grouped):
         if progress_bar: progress_bar.progress(int((i / total_locations) * 100))
         if status_text: status_text.text(f"Processing V1 Label {i+1}/{total_locations}")
-        if label_count > 0 and label_count % 4 == 0: elements.append(PageBreak())
         
         part1 = group.iloc[0]
+        # --- FIX: Skip generation for empty labels ---
+        if str(part1['Part No']).upper() == 'EMPTY':
+            continue
+
+        if label_count > 0 and label_count % 4 == 0: elements.append(PageBreak())
+        
         part2 = group.iloc[1] if len(group) > 1 else part1
         
         part_table1 = Table([['Part No', format_part_no_v1(str(part1['Part No']))], ['Description', format_description_v1(str(part1['Description']))]], colWidths=[4*cm, 11*cm], rowHeights=[1.3*cm, 0.8*cm])
@@ -223,7 +219,6 @@ def generate_labels_from_excel_v1(df, progress_bar=None, status_text=None):
         elements.append(part_table1)
         elements.append(Spacer(1, 0.3 * cm))
         elements.append(part_table2)
-        # --- FIX: Added Spacer for vertical gap ---
         elements.append(Spacer(1, 0.3 * cm))
         elements.append(location_table)
         elements.append(Spacer(1, 0.2 * cm))
@@ -247,9 +242,14 @@ def generate_labels_from_excel_v2(df, progress_bar=None, status_text=None):
     for i, (location_key, group) in enumerate(df_grouped):
         if progress_bar: progress_bar.progress(int((i / total_locations) * 100))
         if status_text: status_text.text(f"Processing V2 Label {i+1}/{total_locations}")
-        if label_count > 0 and label_count % 4 == 0: elements.append(PageBreak())
 
         part1 = group.iloc[0]
+        # --- FIX: Skip generation for empty labels ---
+        if str(part1['Part No']).upper() == 'EMPTY':
+            continue
+            
+        if label_count > 0 and label_count % 4 == 0: elements.append(PageBreak())
+
         part_table = Table([['Part No', format_part_no_v2(str(part1['Part No']))], ['Description', format_description(str(part1['Description']))]], colWidths=[4*cm, 11*cm], rowHeights=[1.9*cm, 2.1*cm])
         
         location_values = extract_location_values(part1)
@@ -266,7 +266,6 @@ def generate_labels_from_excel_v2(df, progress_bar=None, status_text=None):
         location_table.setStyle(TableStyle(location_style))
         
         elements.append(part_table)
-        # --- FIX: Added Spacer for vertical gap ---
         elements.append(Spacer(1, 0.3 * cm))
         elements.append(location_table)
         elements.append(Spacer(1, 0.2 * cm))
@@ -297,7 +296,6 @@ def main():
             
             if container_col:
                 unique_containers = get_unique_containers(df, container_col)
-                num_racks = len(unique_containers)
                 
                 st.sidebar.markdown("---")
                 st.sidebar.subheader("Container Dimensions")
@@ -306,16 +304,16 @@ def main():
                 
                 st.sidebar.markdown("---")
                 st.sidebar.subheader("Rack & Bin Configuration")
-                st.sidebar.info(f"Found {len(unique_containers)} container types. They will be assigned to {num_racks} racks.")
+                num_racks = st.sidebar.number_input("Number of Racks", min_value=1, value=max(1, len(unique_containers)), step=1)
 
                 rack_configs = {}
-                # Sort unique_containers to maintain a consistent order for rack naming
                 sorted_unique_containers = sorted(list(unique_containers))
-                for i, container in enumerate(sorted_unique_containers):
+
+                for i in range(num_racks):
                     rack_name = f"Rack {i+1:02d}"
                     with st.sidebar.expander(f"Settings for {rack_name}", expanded=i==0):
                         rack_dim = st.text_input(f"Dimensions for {rack_name}", key=f"dim_{rack_name}", placeholder="e.g., 1200x1000x2000mm")
-                        capacities = {bin_type: st.number_input(f"Capacity of '{bin_type}' in {rack_name}", min_value=0, value=1 if bin_type == container else 0, step=1, key=f"cap_{rack_name}_{bin_type}") for bin_type in sorted_unique_containers}
+                        capacities = {bin_type: st.number_input(f"Capacity of '{bin_type}' in {rack_name}", min_value=0, value=0, step=1, key=f"cap_{rack_name}_{bin_type}") for bin_type in sorted_unique_containers}
                         levels = st.multiselect(f"Levels for {rack_name}", options=['A','B','C','D','E','F','G','H'], default=['A','B','C','D'], key=f"lvl_{rack_name}")
                         rack_configs[rack_name] = {'dimensions': rack_dim, 'capacities': capacities, 'levels': levels}
 
