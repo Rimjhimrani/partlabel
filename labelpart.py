@@ -73,8 +73,8 @@ def get_unique_containers(df, container_col):
 
 def automate_location_assignment(df, base_rack_id, rack_configs, status_text=None):
     part_no_col, desc_col, model_col, station_col, container_col = find_required_columns(df)
-    if not part_no_col or not container_col:
-        st.error("❌ 'Part Number' or 'Container Type' column not found.")
+    if not part_no_col or not container_col or not station_col:
+        st.error("❌ 'Part Number', 'Container Type', or 'Station No' column not found.")
         return None
 
     df_processed = df.copy()
@@ -83,73 +83,97 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
         model_col: 'Bus Model', station_col: 'Station No', container_col: 'Container'
     }
     df_processed.rename(columns={k: v for k, v in rename_dict.items() if k}, inplace=True)
+    
+    # Sort by Station, then by Container to process in order
+    df_processed.sort_values(by=['Station No', 'Container'], inplace=True)
 
-    rack_fill_status = {name: {'level_idx': 0, 'cell_count': 0} for name in rack_configs}
     all_assigned_parts = []
     
-    for container_type, group in df_processed.groupby('Container'):
-        parts_to_assign = group.to_dict('records')
-        eligible_racks = [
-            name for name, config in rack_configs.items() if config['capacities'].get(container_type, 0) > 0
-        ]
-        if not eligible_racks: continue
+    # Process group by group based on Station No
+    for station_no, station_group in df_processed.groupby('Station No', sort=False):
+        # Reset rack status for each new station
+        rack_fill_status = {name: {ctype: {'level_idx': 0, 'cell_count': 0} for ctype in rack_configs[name]['capacities']} for name in rack_configs}
+        
+        # Process each container type within the station
+        for container_type, group in station_group.groupby('Container'):
+            parts_to_assign = group.to_dict('records')
             
-        current_rack_idx = 0
-        for part in parts_to_assign:
-            assigned = False
-            while not assigned and current_rack_idx < len(eligible_racks):
-                rack_name = eligible_racks[current_rack_idx]
-                config, status = rack_configs[rack_name], rack_fill_status[rack_name]
-                capacity, levels = config['capacities'].get(container_type, 0), config['levels']
-                
-                if not levels or status['level_idx'] >= len(levels):
-                    current_rack_idx += 1
-                    continue
+            eligible_racks = [
+                name for name, config in rack_configs.items() if config['capacities'].get(container_type, 0) > 0
+            ]
+            if not eligible_racks: continue
+            
+            current_rack_idx = 0
+            for part in parts_to_assign:
+                assigned = False
+                # Loop through eligible racks until the part is assigned
+                while not assigned and current_rack_idx < len(eligible_racks):
+                    rack_name = eligible_racks[current_rack_idx]
+                    config = rack_configs[rack_name]
+                    status = rack_fill_status[rack_name][container_type]
+                    
+                    capacity = config['capacities'].get(container_type, 0)
+                    levels = config['levels']
+                    
+                    # If current level is full, move to the next level
+                    if status['cell_count'] >= capacity:
+                        status['cell_count'] = 0
+                        status['level_idx'] += 1
+                    
+                    # If all levels in the rack are full, move to the next rack
+                    if not levels or status['level_idx'] >= len(levels):
+                        current_rack_idx += 1
+                        continue
 
-                rack_num_str = ''.join(filter(str.isdigit, rack_name))
-                part.update({
-                    'Rack': base_rack_id,
-                    'Rack No 1st': rack_num_str[0] if len(rack_num_str) > 1 else '0',
-                    'Rack No 2nd': rack_num_str[1] if len(rack_num_str) > 1 else rack_num_str[0],
-                    'Level': levels[status['level_idx']],
-                    'Cell': f"{(status['cell_count'] % capacity) + 1:02d}"
-                })
-                all_assigned_parts.append(part)
-                
-                status['cell_count'] += 1
-                assigned = True
-                
-                if status['cell_count'] >= capacity:
-                    status['cell_count'], status['level_idx'] = 0, status['level_idx'] + 1
-    
+                    # Assign location details to the part
+                    rack_num_str = ''.join(filter(str.isdigit, rack_name))
+                    part.update({
+                        'Rack': base_rack_id,
+                        'Rack No 1st': rack_num_str[0] if len(rack_num_str) > 1 else '0',
+                        'Rack No 2nd': rack_num_str[1] if len(rack_num_str) > 1 else rack_num_str[0],
+                        'Level': levels[status['level_idx']],
+                        'Cell': f"{(status['cell_count'] % capacity) + 1:02d}"
+                    })
+                    all_assigned_parts.append(part)
+                    
+                    status['cell_count'] += 1
+                    assigned = True
+
     final_df = pd.DataFrame(all_assigned_parts)
     if status_text: status_text.text("Generating blank locations...")
+    
     blank_rows = []
+    # Generate blank rows for all remaining empty slots in every rack
     for rack_name, config in rack_configs.items():
         for container_type, capacity in config['capacities'].items():
             if capacity == 0: continue
             for level in config['levels']:
                 rack_num_val = ''.join(filter(str.isdigit, rack_name))
+                rack_num_1st = rack_num_val[0] if len(rack_num_val) > 1 else '0'
                 rack_num_2nd = rack_num_val[1] if len(rack_num_val) > 1 else rack_num_val[0]
                 
-                # Check if final_df is not empty before filtering
+                num_existing = 0
                 if not final_df.empty:
-                    existing_parts_mask = (final_df['Rack No 2nd'] == rack_num_2nd) & (final_df['Level'] == level) & (final_df['Container'] == container_type)
+                    existing_parts_mask = (
+                        (final_df['Rack No 1st'] == rack_num_1st) &
+                        (final_df['Rack No 2nd'] == rack_num_2nd) &
+                        (final_df['Level'] == level) &
+                        (final_df['Container'] == container_type)
+                    )
                     num_existing = len(final_df[existing_parts_mask])
-                else:
-                    num_existing = 0
 
                 for i in range(num_existing, capacity):
                     blank_rows.append({
                         'Part No': 'EMPTY', 'Description': '', 'Bus Model': '', 'Station No': '', 'Container': container_type,
                         'Rack': base_rack_id,
-                        'Rack No 1st': rack_num_val[0] if len(rack_num_val) > 1 else '0',
+                        'Rack No 1st': rack_num_1st,
                         'Rack No 2nd': rack_num_2nd,
                         'Level': level, 'Cell': f"{i + 1:02d}"
                     })
     
     if blank_rows:
         final_df = pd.concat([final_df, pd.DataFrame(blank_rows)], ignore_index=True)
+        
     return final_df
 
 def create_location_key(row):
@@ -285,11 +309,13 @@ def main():
                 st.sidebar.info(f"Found {len(unique_containers)} container types. They will be assigned to {num_racks} racks.")
 
                 rack_configs = {}
-                for i, container in enumerate(unique_containers):
+                # Sort unique_containers to maintain a consistent order for rack naming
+                sorted_unique_containers = sorted(list(unique_containers))
+                for i, container in enumerate(sorted_unique_containers):
                     rack_name = f"Rack {i+1:02d}"
                     with st.sidebar.expander(f"Settings for {rack_name}", expanded=i==0):
                         rack_dim = st.text_input(f"Dimensions for {rack_name}", key=f"dim_{rack_name}", placeholder="e.g., 1200x1000x2000mm")
-                        capacities = {bin_type: st.number_input(f"Capacity of '{bin_type}' in {rack_name}", min_value=0, value=1 if bin_type == container else 0, step=1, key=f"cap_{rack_name}_{bin_type}") for bin_type in unique_containers}
+                        capacities = {bin_type: st.number_input(f"Capacity of '{bin_type}' in {rack_name}", min_value=0, value=1 if bin_type == container else 0, step=1, key=f"cap_{rack_name}_{bin_type}") for bin_type in sorted_unique_containers}
                         levels = st.multiselect(f"Levels for {rack_name}", options=['A','B','C','D','E','F','G','H'], default=['A','B','C','D'], key=f"lvl_{rack_name}")
                         rack_configs[rack_name] = {'dimensions': rack_dim, 'capacities': capacities, 'levels': levels}
 
