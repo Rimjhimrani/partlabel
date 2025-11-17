@@ -91,19 +91,19 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
     for station_no, station_group in df_processed.groupby('Station No', sort=False):
         if status_text: status_text.text(f"Processing station: {station_no}...")
         
-        # 1. Create a master list of all available slots for this station
+        # 1. Create a master list of all available slots for this station based on the new level-specific capacity
         available_slots = []
-        for rack_name, config in rack_configs.items():
+        for rack_name, config in sorted(rack_configs.items()):
             rack_num_val = ''.join(filter(str.isdigit, rack_name))
             rack_num_1st = rack_num_val[0] if len(rack_num_val) > 1 else '0'
             rack_num_2nd = rack_num_val[1] if len(rack_num_val) > 1 else rack_num_val[0]
             
-            # Sort levels and container types to ensure consistent physical order
             sorted_levels = sorted(config.get('levels', []))
-            sorted_capacities = sorted(config.get('capacities', {}).items())
-
+            
             for level in sorted_levels:
-                for container_type, capacity in sorted_capacities:
+                level_specific_capacities = config.get('level_capacities', {}).get(level, {})
+                
+                for container_type, capacity in sorted(level_specific_capacities.items()):
                     if capacity > 0:
                         for i in range(capacity):
                             slot = {
@@ -120,16 +120,14 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
         for part in parts_to_assign:
             part_container_type = part['Container']
             
-            # Find the next available, unused slot for this container type
             assigned = False
             for slot in available_slots:
                 if not slot['is_used'] and slot['Container'] == part_container_type:
-                    # Assign location details from the slot to the part
                     part.update({k: v for k, v in slot.items() if k not in ['is_used', 'Container']})
                     all_assigned_parts.append(part)
-                    slot['is_used'] = True  # Mark this slot as used
+                    slot['is_used'] = True
                     assigned = True
-                    break # Move to the next part
+                    break
             
             if not assigned:
                 unassigned_parts_count += 1
@@ -141,7 +139,7 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
         for slot in available_slots:
             if not slot['is_used']:
                 empty_part = {
-                    'Part No': 'EMPTY', 'Description': '', 'Bus Model': '', 'Station No': '',
+                    'Part No': 'EMPTY', 'Description': '', 'Bus Model': '', 'Station No': station_no,
                     'Container': slot['Container'], 'Level': slot['Level'], 'Cell': slot['Cell'],
                     'Rack': slot['Rack'], 'Rack No 1st': slot['Rack No 1st'], 'Rack No 2nd': slot['Rack No 2nd']
                 }
@@ -159,7 +157,7 @@ def create_location_key(row):
 def extract_location_values(row):
     return [str(row.get(c, '')) for c in ['Bus Model', 'Station No', 'Rack', 'Rack No 1st', 'Rack No 2nd', 'Level', 'Cell']]
 
-# --- PDF Generation Functions (WITH SPACING FIX) ---
+# --- PDF Generation Functions ---
 def generate_labels_from_excel_v1(df, progress_bar=None, status_text=None):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1*cm, bottomMargin=1*cm, leftMargin=1.5*cm, rightMargin=1.5*cm)
@@ -307,9 +305,35 @@ def main():
                     rack_name = f"Rack {i+1:02d}"
                     with st.sidebar.expander(f"Settings for {rack_name}", expanded=i==0):
                         rack_dim = st.text_input(f"Dimensions for {rack_name}", key=f"dim_{rack_name}", placeholder="e.g., 1200x1000x2000mm")
-                        capacities = {bin_type: st.number_input(f"Capacity of '{bin_type}' in {rack_name}", min_value=0, value=0, step=1, key=f"cap_{rack_name}_{bin_type}") for bin_type in sorted_unique_containers}
+                        
                         levels = st.multiselect(f"Levels for {rack_name}", options=['A','B','C','D','E','F','G','H'], default=['A','B','C','D'], key=f"lvl_{rack_name}")
-                        rack_configs[rack_name] = {'dimensions': rack_dim, 'capacities': capacities, 'levels': levels}
+                        
+                        level_capacities = {}
+                        if levels:
+                            st.markdown("---")
+                            st.write("**Set Capacity per Level**")
+
+                        for level in levels:
+                            level_capacities[level] = {}
+                            st.markdown(f"**Level {level}**")
+                            # Use columns for a more compact layout
+                            cols = st.columns(len(sorted_unique_containers))
+                            for idx, bin_type in enumerate(sorted_unique_containers):
+                                with cols[idx]:
+                                    capacity = st.number_input(
+                                        f"{bin_type}", 
+                                        min_value=0, 
+                                        value=0, 
+                                        step=1, 
+                                        key=f"cap_{rack_name}_{level}_{bin_type}"
+                                    )
+                                    level_capacities[level][bin_type] = capacity
+                        
+                        rack_configs[rack_name] = {
+                            'dimensions': rack_dim, 
+                            'levels': levels, 
+                            'level_capacities': level_capacities
+                        }
 
                 if st.button("🚀 Generate PDF Labels", type="primary"):
                     progress_bar = st.progress(0)
@@ -337,7 +361,7 @@ def main():
                             st.error("❌ No data was processed. Check your input file and rack configurations.")
                     except Exception as e:
                         st.error(f"❌ An unexpected error occurred: {e}")
-                        st.exception(e) # This will print the full traceback for debugging
+                        st.exception(e)
                     finally:
                         progress_bar.empty()
                         status_text.empty()
