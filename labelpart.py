@@ -92,67 +92,77 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
     for station_no, station_group in df_processed.groupby('Station No', sort=False):
         if status_text: status_text.text(f"Processing station: {station_no}...")
         
-        # 1. Create a master list of all available slots based on container-specific capacities
-        available_slots_by_container = {}
-        
-        # This loop creates an ordered list of available locations for each type of container
+        # 1. Create a master list of all PHYSICAL slots available for this station
+        all_physical_slots = []
         for rack_name, config in sorted(rack_configs.items()):
             rack_num_val = ''.join(filter(str.isdigit, rack_name))
             rack_num_1st = rack_num_val[0] if len(rack_num_val) > 1 else '0'
             rack_num_2nd = rack_num_val[1] if len(rack_num_val) > 1 else rack_num_val[0]
             
-            for level, level_capacities in sorted(config.get('level_capacities', {}).items()):
-                cell_counter = 1
-                for container_type, capacity in sorted(level_capacities.items()):
-                    if capacity > 0:
-                        if container_type not in available_slots_by_container:
-                            available_slots_by_container[container_type] = []
-                        
-                        for i in range(capacity):
-                            slot = {
-                                'Level': level, 'Cell': f"{cell_counter:02d}",
-                                'Rack': base_rack_id, 'Rack No 1st': rack_num_1st, 'Rack No 2nd': rack_num_2nd,
-                                'Container_Type_Slot': container_type
-                            }
-                            available_slots_by_container[container_type].append(slot)
-                            cell_counter += 1
-
-        # 2. Assign parts to the available slots sequentially based on their container type
-        assigned_slots_keys = set()
+            for level in sorted(config.get('levels', [])):
+                num_cells = config.get('physical_level_capacities', {}).get(level, 0)
+                for i in range(num_cells):
+                    slot = {
+                        'Level': level, 'Cell': f"{i + 1:02d}",
+                        'Rack': base_rack_id, 'Rack No 1st': rack_num_1st, 'Rack No 2nd': rack_num_2nd,
+                    }
+                    all_physical_slots.append(slot)
         
-        # Group parts within the current station by their container type
+        # 2. Create a list of all REQUIRED bin types based on total rack counts
+        all_required_bins = []
+        for rack_name, config in sorted(rack_configs.items()):
+            for container_type, count in sorted(config.get('rack_bin_counts', {}).items()):
+                all_required_bins.extend([container_type] * count)
+
+        # Warn if the number of bins defined exceeds the total physical space
+        if len(all_required_bins) > len(all_physical_slots):
+            st.warning(f"⚠️ For station {station_no}, you have defined {len(all_required_bins)} total bins, "
+                       f"but there is only physical space for {len(all_physical_slots)}. "
+                       f"{len(all_required_bins) - len(all_physical_slots)} bins will be ignored.")
+        
+        # 3. Map the required bin types to the physical slots to create the final slot map
+        available_slots_by_container = {}
+        num_slots_to_map = min(len(all_physical_slots), len(all_required_bins))
+        for i in range(num_slots_to_map):
+            physical_slot = all_physical_slots[i]
+            container_type = all_required_bins[i]
+            
+            physical_slot['Container_Type_Slot'] = container_type
+            
+            if container_type not in available_slots_by_container:
+                available_slots_by_container[container_type] = []
+            available_slots_by_container[container_type].append(physical_slot)
+
+        # 4. Assign parts from the input file to the available, designated slots
+        assigned_physical_slots = set()
         for container_type, parts_group in station_group.groupby('Container', sort=False):
             parts_to_assign = parts_group.to_dict('records')
-            
-            # Find available slots for this specific container type
             slots_for_this_container = available_slots_by_container.get(container_type, [])
             
             if len(parts_to_assign) > len(slots_for_this_container):
                 unassigned_count = len(parts_to_assign) - len(slots_for_this_container)
-                st.warning(f"⚠️ For station {station_no}, could not assign {unassigned_count} parts needing '{container_type}' due to insufficient capacity.")
+                st.warning(f"⚠️ For station {station_no}, could not place {unassigned_count} parts needing '{container_type}' due to insufficient capacity defined for that bin type.")
                 parts_to_assign = parts_to_assign[:len(slots_for_this_container)]
 
             for i, part in enumerate(parts_to_assign):
                 slot = slots_for_this_container[i]
                 part.update(slot)
                 final_df_parts.append(part)
-                # Mark this slot as used by creating a unique key
-                assigned_slots_keys.add(f"{slot['Rack No 1st']}{slot['Rack No 2nd']}_{slot['Level']}_{slot['Cell']}")
-
-        # 3. Create 'EMPTY' records for all remaining unused slots for this station
-        for container_type, slots in available_slots_by_container.items():
-            for slot in slots:
+                # Mark this physical slot as occupied by a part
                 slot_key = f"{slot['Rack No 1st']}{slot['Rack No 2nd']}_{slot['Level']}_{slot['Cell']}"
-                if slot_key not in assigned_slots_keys:
-                    empty_part = {
-                        'Part No': 'EMPTY', 'Description': '', 'Bus Model': '', 'Station No': station_no, 'Container': container_type,
-                        **slot
-                    }
-                    final_df_parts.append(empty_part)
+                assigned_physical_slots.add(slot_key)
+        
+        # 5. Create 'EMPTY' records for all physical slots that did not receive a part
+        for slot in all_physical_slots:
+            slot_key = f"{slot['Rack No 1st']}{slot['Rack No 2nd']}_{slot['Level']}_{slot['Cell']}"
+            if slot_key not in assigned_physical_slots:
+                empty_part = {
+                    'Part No': 'EMPTY', 'Description': '', 'Bus Model': '', 'Station No': station_no, 'Container': '',
+                    **slot
+                }
+                final_df_parts.append(empty_part)
 
-    if not final_df_parts:
-        return pd.DataFrame()
-
+    if not final_df_parts: return pd.DataFrame()
     return pd.DataFrame(final_df_parts)
 
 
@@ -294,10 +304,11 @@ def main():
             if container_col:
                 unique_containers = get_unique_containers(df, container_col)
                 
-                # Container dimensions are now optional and don't drive logic
-                with st.sidebar.expander("Container Dimensions (Optional)"):
-                    for container in unique_containers:
-                        st.text_input(f"Dimensions for {container}", key=f"bindim_{container}", placeholder="e.g., 300x200x150mm")
+                st.sidebar.markdown("---")
+                st.sidebar.subheader("Container Dimensions")
+                st.sidebar.info("Provide dimensions for each container type found in your file.")
+                for container in unique_containers:
+                    st.sidebar.text_input(f"Dimensions for {container}", key=f"bindim_{container}", placeholder="e.g., 300x200x150mm")
                 
                 st.sidebar.markdown("---")
                 st.sidebar.subheader("Rack & Level Configuration")
@@ -314,30 +325,28 @@ def main():
                         
                         levels = st.multiselect(f"Levels for {rack_name}", options=['A','B','C','D','E','F','G','H'], default=['A','B','C','D'], key=f"lvl_{rack_name}")
                         
-                        level_capacities = {}
+                        # --- THIS IS THE NEW UI LOGIC ---
+                        physical_level_capacities = {}
                         if levels:
                             st.markdown("---")
-                            st.write("**Set Capacity per Container Type for each Level**")
+                            st.write("**1. Set Physical Cells per Level**")
+                            for level in levels:
+                                p_capacity = st.number_input(f"Total Cells on Level {level}", min_value=1, value=10, step=1, key=f"pcap_{rack_name}_{level}")
+                                physical_level_capacities[level] = p_capacity
 
-                        for level in levels:
-                            st.markdown(f"**Level {level} Capacity:**")
-                            # --- THIS IS THE NEW UI LOGIC ---
-                            container_capacities_for_level = {}
+                        rack_bin_counts = {}
+                        if levels and unique_containers:
+                            st.markdown("---")
+                            st.write("**2. Set Total Bin Count for this Rack**")
                             for container in unique_containers:
-                                capacity = st.number_input(
-                                    f"Number of '{container}' Bins", 
-                                    min_value=0, 
-                                    value=0, # Default to 0 to force explicit configuration
-                                    step=1, 
-                                    key=f"cap_{rack_name}_{level}_{container}"
-                                )
-                                if capacity > 0:
-                                    container_capacities_for_level[container] = capacity
-                            level_capacities[level] = container_capacities_for_level
+                                b_count = st.number_input(f"Total Count of '{container}'", min_value=0, value=0, step=1, key=f"bcount_{rack_name}_{container}")
+                                if b_count > 0:
+                                    rack_bin_counts[container] = b_count
                         
                         rack_configs[rack_name] = {
                             'levels': levels, 
-                            'level_capacities': level_capacities
+                            'physical_level_capacities': physical_level_capacities,
+                            'rack_bin_counts': rack_bin_counts
                         }
 
                 if st.button("🚀 Generate PDF Labels", type="primary"):
