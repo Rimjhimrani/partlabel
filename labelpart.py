@@ -56,7 +56,7 @@ def format_description(desc):
     if not desc or not isinstance(desc, str): desc = str(desc)
     return Paragraph(desc, desc_style)
 
-# --- Advanced Core Logic Functions ---
+# --- Advanced Core Logic Functions (No Changes) ---
 def find_required_columns(df):
     cols = {col.upper().strip(): col for col in df.columns}
     part_no_key = next((k for k in cols if 'PART' in k and ('NO' in k or 'NUM' in k)), None)
@@ -71,7 +71,6 @@ def get_unique_containers(df, container_col):
     if not container_col or container_col not in df.columns: return []
     return sorted(df[container_col].dropna().astype(str).unique())
 
-# --- THIS IS THE REBUILT CORE LOGIC FUNCTION ---
 def automate_location_assignment(df, base_rack_id, rack_configs, status_text=None):
     part_no_col, desc_col, model_col, station_col, container_col = find_required_columns(df)
     if not all([part_no_col, container_col, station_col]):
@@ -324,9 +323,16 @@ def main():
                 num_racks = st.sidebar.number_input("Number of Racks", min_value=1, value=1, step=1)
 
                 rack_configs = {}
+                rack_dims = {} # To store rack dimensions for validation
                 for i in range(num_racks):
                     rack_name = f"Rack {i+1:02d}"
                     with st.sidebar.expander(f"Settings for {rack_name}", expanded=i==0):
+                        
+                        # --- ADDED RACK DIMENSIONS INPUT ---
+                        r_dim = st.text_input(f"Dimensions for {rack_name}", key=f"rackdim_{rack_name}", placeholder="e.g., 1200x1000x2000mm")
+                        rack_dims[rack_name] = r_dim
+                        
+                        st.markdown("---")
                         rack_bin_counts = {}
                         st.write(f"**Set Total Bin Capacity for {rack_name}**")
                         for container in unique_containers:
@@ -334,13 +340,24 @@ def main():
                             if b_count > 0:
                                 rack_bin_counts[container] = b_count
                         
-                        rack_configs[rack_name] = {'rack_bin_counts': rack_bin_counts}
+                        rack_configs[rack_name] = {
+                            'dimensions': r_dim,
+                            'rack_bin_counts': rack_bin_counts
+                        }
 
                 if st.button("🚀 Generate PDF Labels", type="primary"):
                     # --- Validation Step ---
-                    missing_dims = [name for name, dim in bin_dims.items() if not dim]
-                    if missing_dims:
-                        st.error(f"❌ Please provide dimensions for all container types: {', '.join(missing_dims)}")
+                    missing_bin_dims = [name for name, dim in bin_dims.items() if not dim]
+                    missing_rack_dims = [name for name, dim in rack_dims.items() if not dim]
+                    
+                    error_messages = []
+                    if missing_bin_dims:
+                        error_messages.append(f"container dimensions for: {', '.join(missing_bin_dims)}")
+                    if missing_rack_dims:
+                        error_messages.append(f"rack dimensions for: {', '.join(missing_rack_dims)}")
+
+                    if error_messages:
+                        st.error(f"❌ Please provide all required information. Missing {'; '.join(error_messages)}.")
                         st.stop() # Halt execution
 
                     progress_bar = st.progress(0)
