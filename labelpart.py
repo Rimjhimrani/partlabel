@@ -20,11 +20,9 @@ st.set_page_config(
 bold_style_v1 = ParagraphStyle(
     name='Bold_v1', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=14, spaceBefore=2, spaceAfter=2
 )
-
 bold_style_v2 = ParagraphStyle(
     name='Bold_v2', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=12, spaceBefore=0, spaceAfter=15,
 )
-
 desc_style = ParagraphStyle(
     name='Description', fontName='Helvetica', fontSize=20, alignment=TA_LEFT, leading=16, spaceBefore=2, spaceAfter=2
 )
@@ -56,7 +54,7 @@ def format_description(desc):
     if not desc or not isinstance(desc, str): desc = str(desc)
     return Paragraph(desc, desc_style)
 
-# --- Advanced Core Logic Functions (No Changes) ---
+# --- Advanced Core Logic Functions ---
 def find_required_columns(df):
     cols = {col.upper().strip(): col for col in df.columns}
     part_no_key = next((k for k in cols if 'PART' in k and ('NO' in k or 'NUM' in k)), None)
@@ -71,6 +69,7 @@ def get_unique_containers(df, container_col):
     if not container_col or container_col not in df.columns: return []
     return sorted(df[container_col].dropna().astype(str).unique())
 
+# --- THIS IS THE REBUILT CORE LOGIC FUNCTION ---
 def automate_location_assignment(df, base_rack_id, rack_configs, status_text=None):
     part_no_col, desc_col, model_col, station_col, container_col = find_required_columns(df)
     if not all([part_no_col, container_col, station_col]):
@@ -86,8 +85,7 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
     df_processed.sort_values(by=['Station No', 'Container'], inplace=True)
 
     final_df_parts = []
-    LEVELS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'] # Expanded levels
-
+    
     # Process each station independently
     for station_no, station_group in df_processed.groupby('Station No', sort=False):
         if status_text: status_text.text(f"Processing station: {station_no}...")
@@ -99,73 +97,63 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
         # Process parts grouped by their container type for consistent ordering
         for container_type, parts_group in station_group.groupby('Container', sort=True):
             
-            # Find the defined capacity for this bin type from the rack configs
-            # This logic assumes bin capacities are the same across all racks for simplicity
-            capacity_for_this_bin = next(
-                (config['rack_bin_counts'].get(container_type) 
-                 for _, config in sorted_racks if config.get('rack_bin_counts', {}).get(container_type)),
-                None
-            )
-
-            if not capacity_for_this_bin:
-                st.warning(f"⚠️ For station {station_no}, no capacity was defined for '{container_type}'. Skipping these parts.")
-                continue
-            
-            # Start a new level for this new container type
-            level_capacity = capacity_for_this_bin
-            cell_idx = 1
-            
             items_to_place = parts_group.to_dict('records')
-            num_empty_slots = capacity_for_this_bin - len(items_to_place)
             
-            # If there are more parts than capacity, they will overflow to the next level(s)
-            if num_empty_slots < 0:
-                st.warning(f"⚠️ For station {station_no}, {abs(num_empty_slots)} parts of type '{container_type}' will overflow to subsequent levels.")
-            
-            # Add empty placeholder items to fill up the capacity
-            if num_empty_slots > 0:
-                items_to_place.extend([{'Part No': 'EMPTY'}] * num_empty_slots)
-
-            # --- Place all items (parts and empty slots) for this container type ---
-            for item in items_to_place:
+            # --- This inner loop places all parts for a single container type ---
+            while items_to_place:
                 if rack_idx >= len(sorted_racks):
-                    st.error(f"❌ Ran out of rack space at Station {station_no} while placing '{container_type}'. Aborting.")
-                    return pd.DataFrame(final_df_parts) # Return what we have so far
-                
-                rack_name, _ = sorted_racks[rack_idx]
-                rack_num_val = ''.join(filter(str.isdigit, rack_name))
-                rack_num_1st = rack_num_val[0] if len(rack_num_val) > 1 else '0'
-                rack_num_2nd = rack_num_val[1] if len(rack_num_val) > 1 else rack_num_val[0]
-                
-                # Assign location
-                location_info = {
-                    'Rack': base_rack_id, 'Rack No 1st': rack_num_1st, 'Rack No 2nd': rack_num_2nd,
-                    'Level': LEVELS[level_idx], 'Cell': f"{cell_idx:02d}",
-                    'Station No': station_no # Ensure station number is consistent
-                }
-                
-                # If the item is an empty slot, create the full record
-                if item['Part No'] == 'EMPTY':
-                    item = {**{'Description': '', 'Bus Model': '', 'Container': container_type}, **item, **location_info}
-                else:
-                    item.update(location_info)
-                
-                final_df_parts.append(item)
-                
-                # --- Update pointers for the next item ---
-                cell_idx += 1
-                if cell_idx > level_capacity:
-                    cell_idx = 1
-                    level_idx += 1
-                    if level_idx >= len(LEVELS):
-                        level_idx = 0
-                        rack_idx += 1
+                    st.error(f"❌ Ran out of rack space at Station {station_no} while trying to place '{container_type}'. Aborting.")
+                    items_to_place = [] # Stop trying to place these parts
+                    continue
 
-            # After all items for a container type are placed, move to the next level for the next container
-            level_idx += 1
-            if level_idx >= len(LEVELS):
-                level_idx = 0
-                rack_idx += 1
+                # Get the configuration for the CURRENT rack
+                current_rack_name, current_config = sorted_racks[rack_idx]
+                allowed_levels = current_config.get('levels', [])
+                
+                # Get the capacity for this bin type from THIS SPECIFIC RACK
+                capacity_for_this_bin = current_config.get('rack_bin_counts', {}).get(container_type, 0)
+                
+                # If this rack has 0 capacity for this bin, or no levels, move to the next rack
+                if capacity_for_this_bin == 0 or not allowed_levels or level_idx >= len(allowed_levels):
+                    rack_idx += 1
+                    level_idx = 0
+                    continue # Try again with the next rack
+
+                # --- Place parts on the current level ---
+                level_capacity = capacity_for_this_bin
+                num_to_place_on_this_level = min(len(items_to_place), level_capacity)
+                
+                parts_for_this_level = items_to_place[:num_to_place_on_this_level]
+                items_to_place = items_to_place[num_to_place_on_this_level:] # Update remaining parts
+                
+                num_empty_slots = level_capacity - len(parts_for_this_level)
+                
+                # Combine parts and empty slots for this level
+                level_items = parts_for_this_level + [{'Part No': 'EMPTY'}] * num_empty_slots
+
+                # Assign location to each item on this level
+                cell_idx = 1
+                for item in level_items:
+                    rack_num_val = ''.join(filter(str.isdigit, current_rack_name))
+                    rack_num_1st = rack_num_val[0] if len(rack_num_val) > 1 else '0'
+                    rack_num_2nd = rack_num_val[1] if len(rack_num_val) > 1 else rack_num_val[0]
+                    
+                    location_info = {
+                        'Rack': base_rack_id, 'Rack No 1st': rack_num_1st, 'Rack No 2nd': rack_num_2nd,
+                        'Level': allowed_levels[level_idx], 'Cell': f"{cell_idx:02d}",
+                        'Station No': station_no
+                    }
+                    
+                    if item['Part No'] == 'EMPTY':
+                        item = {**{'Description': '', 'Bus Model': '', 'Container': container_type}, **item, **location_info}
+                    else:
+                        item.update(location_info)
+                    
+                    final_df_parts.append(item)
+                    cell_idx += 1
+                
+                # Move to the next level for the next batch of parts (or the next container type)
+                level_idx += 1
 
     if not final_df_parts: return pd.DataFrame()
     return pd.DataFrame(final_df_parts)
@@ -308,7 +296,6 @@ def main():
             if container_col:
                 unique_containers = get_unique_containers(df, container_col)
                 
-                # --- THIS IS THE NEW UI LOGIC ---
                 st.sidebar.markdown("---")
                 st.sidebar.subheader("1. Container Dimensions (Required)")
                 bin_dims = {}
@@ -328,9 +315,16 @@ def main():
                     rack_name = f"Rack {i+1:02d}"
                     with st.sidebar.expander(f"Settings for {rack_name}", expanded=i==0):
                         
-                        # --- ADDED RACK DIMENSIONS INPUT ---
                         r_dim = st.text_input(f"Dimensions for {rack_name}", key=f"rackdim_{rack_name}", placeholder="e.g., 1200x1000x2000mm")
                         rack_dims[rack_name] = r_dim
+                        
+                        # --- ADDED LEVEL SELECTION ---
+                        levels = st.multiselect(
+                            f"Available Levels for {rack_name}",
+                            options=['A','B','C','D','E','F','G','H'],
+                            default=['A','B','C','D','E'],
+                            key=f"levels_{rack_name}"
+                        )
                         
                         st.markdown("---")
                         rack_bin_counts = {}
@@ -342,6 +336,7 @@ def main():
                         
                         rack_configs[rack_name] = {
                             'dimensions': r_dim,
+                            'levels': levels,
                             'rack_bin_counts': rack_bin_counts
                         }
 
@@ -358,7 +353,7 @@ def main():
 
                     if error_messages:
                         st.error(f"❌ Please provide all required information. Missing {'; '.join(error_messages)}.")
-                        st.stop() # Halt execution
+                        st.stop()
 
                     progress_bar = st.progress(0)
                     status_text = st.empty()
