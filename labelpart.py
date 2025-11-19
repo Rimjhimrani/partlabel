@@ -324,7 +324,7 @@ def main():
                         bin_dims[container] = dim
 
                     st.markdown("---")
-                    st.subheader("2. Rack & Bin Configuration")
+                    st.subheader("2. Rack Dimensions & Bin/Level Capacity")
                     st.info("This configuration will be applied independently to each unique station.")
                     
                     num_racks = st.number_input("Number of Racks", min_value=1, value=1, step=1)
