@@ -304,9 +304,9 @@ def main():
     )
     
     # --- THIS IS THE NEWLY ADDED LINE ---
-    st.sidebar.caption("**R**= RACK")
-    st.sidebar.caption("**TR**= TRAY")
-    st.sidebar.caption("**SH**= SHELVING RACK")
+    st.sidebar.caption("**R** = RACK")
+    st.sidebar.caption("**TR** = TRAY")
+    st.sidebar.caption("**SH** = SHELVING RACK")
     
     # --- Main area for file upload and configuration ---
     uploaded_file = st.file_uploader("Choose an Excel or CSV file", type=['xlsx', 'xls', 'csv'])
