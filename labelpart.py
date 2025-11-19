@@ -17,17 +17,16 @@ st.set_page_config(
 )
 
 # --- Style Definitions (Updated) ---
-# Adjusted spaceBefore and leading for better vertical centering of Part No
+# Increased spaceBefore slightly for better Part No vertical centering
 bold_style_v1 = ParagraphStyle(
-    name='Bold_v1', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=16, spaceBefore=4, spaceAfter=2
+    name='Bold_v1', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=16, spaceBefore=5, spaceAfter=2
 )
 bold_style_v2 = ParagraphStyle(
-    name='Bold_v2', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=16, spaceBefore=8, spaceAfter=15,
+    name='Bold_v2', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=16, spaceBefore=10, spaceAfter=15,
 )
 desc_style = ParagraphStyle(
     name='Description', fontName='Helvetica', fontSize=20, alignment=TA_LEFT, leading=16, spaceBefore=2, spaceAfter=2
 )
-# Restored bold font to location table styles
 location_header_style = ParagraphStyle(
     name='LocationHeader', fontName='Helvetica-Bold', fontSize=16, alignment=TA_CENTER, leading=18
 )
@@ -164,7 +163,7 @@ def create_location_key(row):
 def extract_location_values(row):
     return [str(row.get(c, '')) for c in ['Bus Model', 'Station No', 'Rack', 'Rack No 1st', 'Rack No 2nd', 'Level', 'Cell']]
 
-# --- PDF Generation Functions (Updated) ---
+# --- PDF Generation Functions (No Changes) ---
 def generate_labels_from_excel_v1(df, progress_bar=None, status_text=None):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1*cm, bottomMargin=1*cm, leftMargin=1.5*cm, rightMargin=1.5*cm)
@@ -267,7 +266,6 @@ def generate_labels_from_excel_v2(df, progress_bar=None, status_text=None):
         location_widths = [4 * cm] + [w * (11 * cm) / sum(col_widths) for w in col_widths]
         location_table = Table(location_data, colWidths=location_widths, rowHeights=0.9*cm)
         
-        # Restored bold font to Part No/Description labels
         part_table.setStyle(TableStyle([('GRID', (0, 0), (-1, -1), 1, colors.black), ('ALIGN', (0, 0), (0, -1), 'CENTER'), ('ALIGN', (1, 1), (1, -1), 'LEFT'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('LEFTPADDING', (0, 0), (-1, -1), 5), ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'), ('FONTSIZE', (0, 0), (0, -1), 16)]))
         
         location_colors = [colors.HexColor('#E9967A'), colors.HexColor('#ADD8E6'), colors.HexColor('#90EE90'), colors.HexColor('#FFD700'), colors.HexColor('#ADD8E6'), colors.HexColor('#E9967A'), colors.HexColor('#90EE90')]
