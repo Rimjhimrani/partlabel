@@ -351,7 +351,7 @@ def main():
                             rack_bin_counts = {}
                             st.markdown(f"**Set Total Bin Capacity for {rack_name}**")
                             for container in unique_containers:
-                                b_count = st.number_input(f"Capacity of '{container}' Bins", min_value=0, value=5, step=1, key=f"bcount_{rack_name}_{container}")
+                                b_count = st.number_input(f"Capacity of '{container}' Bins", min_value=0, value=0, step=1, key=f"bcount_{rack_name}_{container}")
                                 if b_count > 0:
                                     rack_bin_counts[container] = b_count
                         
