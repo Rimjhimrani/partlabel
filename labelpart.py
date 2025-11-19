@@ -16,16 +16,28 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- Style Definitions (No Changes) ---
+# --- Style Definitions (Updated) ---
+# Added spaceBefore to push the part number down from the top line
 bold_style_v1 = ParagraphStyle(
-    name='Bold_v1', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=14, spaceBefore=2, spaceAfter=2
+    name='Bold_v1', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=14, spaceBefore=6, spaceAfter=2
 )
 bold_style_v2 = ParagraphStyle(
-    name='Bold_v2', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=12, spaceBefore=0, spaceAfter=15,
+    name='Bold_v2', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=12, spaceBefore=4, spaceAfter=15,
 )
 desc_style = ParagraphStyle(
     name='Description', fontName='Helvetica', fontSize=20, alignment=TA_LEFT, leading=16, spaceBefore=2, spaceAfter=2
 )
+# New dedicated styles for Line Location table for perfect centering
+location_header_style = ParagraphStyle(
+    name='LocationHeader', fontName='Helvetica-Bold', fontSize=16, alignment=TA_CENTER, leading=18
+)
+location_value_style_v1 = ParagraphStyle(
+    name='LocationValue_v1', fontName='Helvetica-Bold', fontSize=14, alignment=TA_CENTER, leading=16
+)
+location_value_style_v2 = ParagraphStyle(
+    name='LocationValue_v2', fontName='Helvetica-Bold', fontSize=16, alignment=TA_CENTER, leading=18
+)
+
 
 # --- Formatting Functions (No Changes) ---
 def format_part_no_v1(part_no):
@@ -54,7 +66,7 @@ def format_description(desc):
     if not desc or not isinstance(desc, str): desc = str(desc)
     return Paragraph(desc, desc_style)
 
-# --- Advanced Core Logic Functions ---
+# --- Advanced Core Logic Functions (No Changes) ---
 def find_required_columns(df):
     cols = {col.upper().strip(): col for col in df.columns}
     part_no_key = next((k for k in cols if 'PART' in k and ('NO' in k or 'NUM' in k)), None)
@@ -69,7 +81,6 @@ def get_unique_containers(df, container_col):
     if not container_col or container_col not in df.columns: return []
     return sorted(df[container_col].dropna().astype(str).unique())
 
-# --- THIS IS THE REBUILT CORE LOGIC FUNCTION ---
 def automate_location_assignment(df, base_rack_id, rack_configs, status_text=None):
     part_no_col, desc_col, model_col, station_col, container_col = find_required_columns(df)
     if not all([part_no_col, container_col, station_col]):
@@ -86,52 +97,42 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
 
     final_df_parts = []
     
-    # Process each station independently
     for station_no, station_group in df_processed.groupby('Station No', sort=False):
         if status_text: status_text.text(f"Processing station: {station_no}...")
 
-        # --- Reset location pointers for each new station ---
         rack_idx, level_idx, cell_idx = 0, 0, 1
         sorted_racks = sorted(rack_configs.items())
 
-        # Process parts grouped by their container type for consistent ordering
         for container_type, parts_group in station_group.groupby('Container', sort=True):
             
             items_to_place = parts_group.to_dict('records')
             
-            # --- This inner loop places all parts for a single container type ---
             while items_to_place:
                 if rack_idx >= len(sorted_racks):
                     st.error(f"❌ Ran out of rack space at Station {station_no} while trying to place '{container_type}'. Aborting.")
-                    items_to_place = [] # Stop trying to place these parts
+                    items_to_place = [] 
                     continue
 
-                # Get the configuration for the CURRENT rack
                 current_rack_name, current_config = sorted_racks[rack_idx]
                 allowed_levels = current_config.get('levels', [])
                 
-                # Get the capacity for this bin type from THIS SPECIFIC RACK
                 capacity_for_this_bin = current_config.get('rack_bin_counts', {}).get(container_type, 0)
                 
-                # If this rack has 0 capacity for this bin, or no levels, move to the next rack
                 if capacity_for_this_bin == 0 or not allowed_levels or level_idx >= len(allowed_levels):
                     rack_idx += 1
                     level_idx = 0
-                    continue # Try again with the next rack
+                    continue
 
-                # --- Place parts on the current level ---
                 level_capacity = capacity_for_this_bin
                 num_to_place_on_this_level = min(len(items_to_place), level_capacity)
                 
                 parts_for_this_level = items_to_place[:num_to_place_on_this_level]
-                items_to_place = items_to_place[num_to_place_on_this_level:] # Update remaining parts
+                items_to_place = items_to_place[num_to_place_on_this_level:]
                 
                 num_empty_slots = level_capacity - len(parts_for_this_level)
                 
-                # Combine parts and empty slots for this level
                 level_items = parts_for_this_level + [{'Part No': 'EMPTY'}] * num_empty_slots
 
-                # Assign location to each item on this level
                 cell_idx = 1
                 for item in level_items:
                     rack_num_val = ''.join(filter(str.isdigit, current_rack_name))
@@ -152,7 +153,6 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
                     final_df_parts.append(item)
                     cell_idx += 1
                 
-                # Move to the next level for the next batch of parts (or the next container type)
                 level_idx += 1
 
     if not final_df_parts: return pd.DataFrame()
@@ -164,7 +164,7 @@ def create_location_key(row):
 def extract_location_values(row):
     return [str(row.get(c, '')) for c in ['Bus Model', 'Station No', 'Rack', 'Rack No 1st', 'Rack No 2nd', 'Level', 'Cell']]
 
-# --- PDF Generation Functions (No Changes) ---
+# --- PDF Generation Functions (Updated) ---
 def generate_labels_from_excel_v1(df, progress_bar=None, status_text=None):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1*cm, bottomMargin=1*cm, leftMargin=1.5*cm, rightMargin=1.5*cm)
@@ -196,8 +196,12 @@ def generate_labels_from_excel_v1(df, progress_bar=None, status_text=None):
         part_table1 = Table([['Part No', format_part_no_v1(str(part1['Part No']))], ['Description', format_description_v1(str(part1['Description']))]], colWidths=[4*cm, 11*cm], rowHeights=[1.3*cm, 0.8*cm])
         part_table2 = Table([['Part No', format_part_no_v1(str(part2['Part No']))], ['Description', format_description_v1(str(part2['Description']))]], colWidths=[4*cm, 11*cm], rowHeights=[1.3*cm, 0.8*cm])
         
+        # UPDATE: Wrapped location data in Paragraphs for better vertical centering
         location_values = extract_location_values(part1)
-        location_data = [['Line Location'] + location_values]
+        location_data = [[
+            Paragraph('Line Location', location_header_style)
+        ] + [Paragraph(str(val), location_value_style_v1) for val in location_values]]
+        
         col_proportions = [1.8, 2.7, 1.3, 1.3, 1.3, 1.3, 1.3]
         location_widths = [4 * cm] + [w * (11 * cm) / sum(col_proportions) for w in col_proportions]
         location_table = Table(location_data, colWidths=location_widths, rowHeights=0.8*cm)
@@ -206,10 +210,15 @@ def generate_labels_from_excel_v1(df, progress_bar=None, status_text=None):
         part_table1.setStyle(part_style)
         part_table2.setStyle(part_style)
         
+        # UPDATE: Simplified location style as Paragraphs now handle font properties
         location_colors = [colors.HexColor('#E9967A'), colors.HexColor('#ADD8E6'), colors.HexColor('#90EE90'), colors.HexColor('#FFD700'), colors.HexColor('#ADD8E6'), colors.HexColor('#E9967A'), colors.HexColor('#90EE90')]
-        location_style = [('GRID', (0, 0), (-1, -1), 1, colors.black), ('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'), ('FONTSIZE', (0, 0), (0, 0), 16), ('FONTSIZE', (1, 0), (-1, -1), 14)]
-        for j, color in enumerate(location_colors): location_style.append(('BACKGROUND', (j+1, 0), (j+1, 0), color))
-        location_table.setStyle(TableStyle(location_style))
+        location_style_cmds = [
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE')
+        ]
+        for j, color in enumerate(location_colors):
+            location_style_cmds.append(('BACKGROUND', (j+1, 0), (j+1, 0), color))
+        location_table.setStyle(TableStyle(location_style_cmds))
         
         elements.append(part_table1)
         elements.append(Spacer(1, 0.3 * cm))
@@ -251,18 +260,27 @@ def generate_labels_from_excel_v2(df, progress_bar=None, status_text=None):
 
         part_table = Table([['Part No', format_part_no_v2(str(part1['Part No']))], ['Description', format_description(str(part1['Description']))]], colWidths=[4*cm, 11*cm], rowHeights=[1.9*cm, 2.1*cm])
         
+        # UPDATE: Wrapped location data in Paragraphs for better vertical centering
         location_values = extract_location_values(part1)
-        location_data = [['Line Location'] + location_values]
+        location_data = [[
+            Paragraph('Line Location', location_header_style)
+        ] + [Paragraph(str(val), location_value_style_v2) for val in location_values]]
+
         col_widths = [1.7, 2.9, 1.3, 1.2, 1.3, 1.3, 1.3]
         location_widths = [4 * cm] + [w * (11 * cm) / sum(col_widths) for w in col_widths]
         location_table = Table(location_data, colWidths=location_widths, rowHeights=0.9*cm)
         
         part_table.setStyle(TableStyle([('GRID', (0, 0), (-1, -1), 1, colors.black), ('ALIGN', (0, 0), (0, -1), 'CENTER'), ('ALIGN', (1, 1), (1, -1), 'LEFT'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('LEFTPADDING', (0, 0), (-1, -1), 5), ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'), ('FONTSIZE', (0, 0), (0, -1), 16)]))
         
+        # UPDATE: Simplified location style as Paragraphs now handle font properties
         location_colors = [colors.HexColor('#E9967A'), colors.HexColor('#ADD8E6'), colors.HexColor('#90EE90'), colors.HexColor('#FFD700'), colors.HexColor('#ADD8E6'), colors.HexColor('#E9967A'), colors.HexColor('#90EE90')]
-        location_style = [('GRID', (0, 0), (-1, -1), 1, colors.black), ('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'), ('FONTSIZE', (0, 0), (0, 0), 16), ('FONTSIZE', (1, 0), (-1, -1), 16)]
-        for j, color in enumerate(location_colors): location_style.append(('BACKGROUND', (j+1, 0), (j+1, 0), color))
-        location_table.setStyle(TableStyle(location_style))
+        location_style_cmds = [
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE')
+        ]
+        for j, color in enumerate(location_colors):
+            location_style_cmds.append(('BACKGROUND', (j+1, 0), (j+1, 0), color))
+        location_table.setStyle(TableStyle(location_style_cmds))
         
         elements.append(part_table)
         elements.append(Spacer(1, 0.3 * cm))
@@ -274,7 +292,7 @@ def generate_labels_from_excel_v2(df, progress_bar=None, status_text=None):
     buffer.seek(0)
     return buffer, label_summary
 
-# --- Main Application UI (Updated) ---
+# --- Main Application UI (No Changes) ---
 def main():
     st.title("🏷️ Rack Label Generator")
     st.markdown("<p style='font-style:italic;'>Designed by Agilomatrix</p>", unsafe_allow_html=True)
@@ -310,7 +328,7 @@ def main():
                 num_racks = st.sidebar.number_input("Number of Racks", min_value=1, value=1, step=1)
 
                 rack_configs = {}
-                rack_dims = {} # To store rack dimensions for validation
+                rack_dims = {}
                 for i in range(num_racks):
                     rack_name = f"Rack {i+1:02d}"
                     with st.sidebar.expander(f"Settings for {rack_name}", expanded=i==0):
@@ -318,7 +336,6 @@ def main():
                         r_dim = st.text_input(f"Dimensions for {rack_name}", key=f"rackdim_{rack_name}", placeholder="e.g., 1200x1000x2000mm")
                         rack_dims[rack_name] = r_dim
                         
-                        # --- ADDED LEVEL SELECTION ---
                         levels = st.multiselect(
                             f"Available Levels for {rack_name}",
                             options=['A','B','C','D','E','F','G','H'],
@@ -341,7 +358,6 @@ def main():
                         }
 
                 if st.button("🚀 Generate PDF Labels", type="primary"):
-                    # --- Validation Step ---
                     missing_bin_dims = [name for name, dim in bin_dims.items() if not dim]
                     missing_rack_dims = [name for name, dim in rack_dims.items() if not dim]
                     
