@@ -296,11 +296,15 @@ def main():
     # --- Sidebar options remain for general settings ---
     st.sidebar.title("📄 Label Options")
     label_type = st.sidebar.selectbox("Choose Label Format:", ["Single Part", "Multiple Parts"])
+    
     base_rack_id = st.sidebar.text_input(
         "Enter Storage Line Side Infrastructure", 
         "R",
-        help="For example: R for Rack, T for Tray, SH for Shelving"
+        help="Enter the base identifier for your storage. E.g., R for Rack, T for Tray, SH for Shelving."
     )
+    
+    # --- THIS IS THE NEWLY ADDED LINE ---
+    st.sidebar.caption("E.g., **R** for Rack, **T** for Tray, **SH** for Shelving")
     
     # --- Main area for file upload and configuration ---
     uploaded_file = st.file_uploader("Choose an Excel or CSV file", type=['xlsx', 'xls', 'csv'])
