@@ -287,16 +287,22 @@ def generate_labels_from_excel_v2(df, progress_bar=None, status_text=None):
     buffer.seek(0)
     return buffer, label_summary
 
-# --- Main Application UI (No Changes) ---
+# --- Main Application UI (UPDATED) ---
 def main():
     st.title("🏷️ Rack Label Generator")
     st.markdown("<p style='font-style:italic;'>Designed by Agilomatrix</p>", unsafe_allow_html=True)
     st.markdown("---")
 
+    # --- Sidebar options remain for general settings ---
     st.sidebar.title("📄 Label Options")
     label_type = st.sidebar.selectbox("Choose Label Format:", ["Single Part", "Multiple Parts"])
-    base_rack_id = st.sidebar.text_input("Enter Storage Line Side Infrastructure", "R")
+    base_rack_id = st.sidebar.text_input(
+        "Enter Storage Line Side Infrastructure", 
+        "R",
+        help="Enter the base identifier for your storage. E.g., R: Rack, TR: Tray, SH: Shelving Rack"
+    )
     
+    # --- Main area for file upload and configuration ---
     uploaded_file = st.file_uploader("Choose an Excel or CSV file", type=['xlsx', 'xls', 'csv'])
 
     if uploaded_file:
@@ -309,48 +315,52 @@ def main():
             if container_col:
                 unique_containers = get_unique_containers(df, container_col)
                 
-                st.sidebar.markdown("---")
-                st.sidebar.subheader("1. Container Dimensions (Required)")
-                bin_dims = {}
-                for container in unique_containers:
-                    dim = st.sidebar.text_input(f"Dimensions for {container}", key=f"bindim_{container}", placeholder="e.g., 300x200x150mm")
-                    bin_dims[container] = dim
+                # --- Configuration now in the main area, inside an expander ---
+                with st.expander("⚙️ Step 1: Configure Dimensions and Rack Setup", expanded=True):
+                    st.subheader("1. Container Dimensions (Required)")
+                    bin_dims = {}
+                    for container in unique_containers:
+                        dim = st.text_input(f"Dimensions for {container}", key=f"bindim_{container}", placeholder="e.g., 300x200x150mm")
+                        bin_dims[container] = dim
 
-                st.sidebar.markdown("---")
-                st.sidebar.subheader("2. Rack & Bin Configuration")
-                st.sidebar.info("This configuration will be applied independently to each unique station.")
-                
-                num_racks = st.sidebar.number_input("Number of Racks", min_value=1, value=1, step=1)
+                    st.markdown("---")
+                    st.subheader("2. Rack & Bin Configuration")
+                    st.info("This configuration will be applied independently to each unique station.")
+                    
+                    num_racks = st.number_input("Number of Racks", min_value=1, value=1, step=1)
 
-                rack_configs = {}
-                rack_dims = {}
-                for i in range(num_racks):
-                    rack_name = f"Rack {i+1:02d}"
-                    with st.sidebar.expander(f"Settings for {rack_name}", expanded=i==0):
+                    rack_configs = {}
+                    rack_dims = {}
+                    for i in range(num_racks):
+                        rack_name = f"Rack {i+1:02d}"
+                        # Using columns for a more organized layout within the expander
+                        col1, col2 = st.columns(2)
                         
-                        r_dim = st.text_input(f"Dimensions for {rack_name}", key=f"rackdim_{rack_name}", placeholder="e.g., 1200x1000x2000mm")
-                        rack_dims[rack_name] = r_dim
+                        with col1:
+                            st.markdown(f"**Settings for {rack_name}**")
+                            r_dim = st.text_input(f"Dimensions for {rack_name}", key=f"rackdim_{rack_name}", placeholder="e.g., 1200x1000x2000mm")
+                            rack_dims[rack_name] = r_dim
+                            levels = st.multiselect(
+                                f"Available Levels for {rack_name}",
+                                options=['A','B','C','D','E','F','G','H'],
+                                default=['A','B','C','D','E'],
+                                key=f"levels_{rack_name}"
+                            )
                         
-                        levels = st.multiselect(
-                            f"Available Levels for {rack_name}",
-                            options=['A','B','C','D','E','F','G','H'],
-                            default=['A','B','C','D','E'],
-                            key=f"levels_{rack_name}"
-                        )
-                        
-                        st.markdown("---")
-                        rack_bin_counts = {}
-                        st.write(f"**Set Total Bin Capacity for {rack_name}**")
-                        for container in unique_containers:
-                            b_count = st.number_input(f"Capacity of '{container}' Bins", min_value=0, value=5, step=1, key=f"bcount_{rack_name}_{container}")
-                            if b_count > 0:
-                                rack_bin_counts[container] = b_count
+                        with col2:
+                            rack_bin_counts = {}
+                            st.markdown(f"**Set Total Bin Capacity for {rack_name}**")
+                            for container in unique_containers:
+                                b_count = st.number_input(f"Capacity of '{container}' Bins", min_value=0, value=5, step=1, key=f"bcount_{rack_name}_{container}")
+                                if b_count > 0:
+                                    rack_bin_counts[container] = b_count
                         
                         rack_configs[rack_name] = {
                             'dimensions': r_dim,
                             'levels': levels,
                             'rack_bin_counts': rack_bin_counts
                         }
+                        st.markdown("---")
 
                 if st.button("🚀 Generate PDF Labels", type="primary"):
                     missing_bin_dims = [name for name, dim in bin_dims.items() if not dim]
