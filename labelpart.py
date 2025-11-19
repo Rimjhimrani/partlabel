@@ -290,7 +290,7 @@ def generate_labels_from_excel_v2(df, progress_bar=None, status_text=None):
 # --- Main Application UI (UPDATED) ---
 def main():
     st.title("🏷️ Rack Label Generator")
-    st.markdown("<p style='font-style:italic;'>Designed by Agilomatrix</p>", unsafe_allow_html=True)
+    st.markdown("<p style='font-style:italic;'>Designed and Developed by Agilomatrix</p>", unsafe_allow_html=True)
     st.markdown("---")
 
     # --- Sidebar options remain for general settings ---
