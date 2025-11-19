@@ -304,6 +304,7 @@ def main():
     )
     
     # --- THIS IS THE NEWLY ADDED LINE ---
+    st.sidebar.caption("EXAMPLE: ")
     st.sidebar.caption("**R** = RACK")
     st.sidebar.caption("**TR** = TRAY")
     st.sidebar.caption("**SH** = SHELVING RACK")
