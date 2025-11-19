@@ -299,7 +299,7 @@ def main():
     base_rack_id = st.sidebar.text_input(
         "Enter Storage Line Side Infrastructure", 
         "R",
-        help="Enter the base identifier for your storage. E.g., R: Rack, TR: Tray, SH: Shelving Rack"
+        help="For example: R for Rack, T for Tray, SH for Shelving"
     )
     
     # --- Main area for file upload and configuration ---
