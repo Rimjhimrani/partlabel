@@ -17,25 +17,25 @@ st.set_page_config(
 )
 
 # --- Style Definitions (Updated) ---
-# Added spaceBefore to push the part number down from the top line
+# Adjusted spaceBefore and leading for better vertical centering of Part No
 bold_style_v1 = ParagraphStyle(
-    name='Bold_v1', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=14, spaceBefore=6, spaceAfter=2
+    name='Bold_v1', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=16, spaceBefore=4, spaceAfter=2
 )
 bold_style_v2 = ParagraphStyle(
-    name='Bold_v2', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=12, spaceBefore=4, spaceAfter=15,
+    name='Bold_v2', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=16, spaceBefore=8, spaceAfter=15,
 )
 desc_style = ParagraphStyle(
     name='Description', fontName='Helvetica', fontSize=20, alignment=TA_LEFT, leading=16, spaceBefore=2, spaceAfter=2
 )
-# New dedicated styles for Line Location table for perfect centering
+# Restored bold font to location table styles
 location_header_style = ParagraphStyle(
-    name='LocationHeader', fontName='Helvetica', fontSize=16, alignment=TA_CENTER, leading=18
+    name='LocationHeader', fontName='Helvetica-Bold', fontSize=16, alignment=TA_CENTER, leading=18
 )
 location_value_style_v1 = ParagraphStyle(
-    name='LocationValue_v1', fontName='Helvetica', fontSize=14, alignment=TA_CENTER, leading=16
+    name='LocationValue_v1', fontName='Helvetica-Bold', fontSize=14, alignment=TA_CENTER, leading=16
 )
 location_value_style_v2 = ParagraphStyle(
-    name='LocationValue_v2', fontName='Helvetica', fontSize=16, alignment=TA_CENTER, leading=18
+    name='LocationValue_v2', fontName='Helvetica-Bold', fontSize=16, alignment=TA_CENTER, leading=18
 )
 
 
@@ -196,7 +196,6 @@ def generate_labels_from_excel_v1(df, progress_bar=None, status_text=None):
         part_table1 = Table([['Part No', format_part_no_v1(str(part1['Part No']))], ['Description', format_description_v1(str(part1['Description']))]], colWidths=[4*cm, 11*cm], rowHeights=[1.3*cm, 0.8*cm])
         part_table2 = Table([['Part No', format_part_no_v1(str(part2['Part No']))], ['Description', format_description_v1(str(part2['Description']))]], colWidths=[4*cm, 11*cm], rowHeights=[1.3*cm, 0.8*cm])
         
-        # UPDATE: Wrapped location data in Paragraphs for better vertical centering
         location_values = extract_location_values(part1)
         location_data = [[
             Paragraph('Line Location', location_header_style)
@@ -210,7 +209,6 @@ def generate_labels_from_excel_v1(df, progress_bar=None, status_text=None):
         part_table1.setStyle(part_style)
         part_table2.setStyle(part_style)
         
-        # UPDATE: Simplified location style as Paragraphs now handle font properties
         location_colors = [colors.HexColor('#E9967A'), colors.HexColor('#ADD8E6'), colors.HexColor('#90EE90'), colors.HexColor('#FFD700'), colors.HexColor('#ADD8E6'), colors.HexColor('#E9967A'), colors.HexColor('#90EE90')]
         location_style_cmds = [
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
@@ -260,7 +258,6 @@ def generate_labels_from_excel_v2(df, progress_bar=None, status_text=None):
 
         part_table = Table([['Part No', format_part_no_v2(str(part1['Part No']))], ['Description', format_description(str(part1['Description']))]], colWidths=[4*cm, 11*cm], rowHeights=[1.9*cm, 2.1*cm])
         
-        # UPDATE: Wrapped location data in Paragraphs for better vertical centering
         location_values = extract_location_values(part1)
         location_data = [[
             Paragraph('Line Location', location_header_style)
@@ -270,9 +267,9 @@ def generate_labels_from_excel_v2(df, progress_bar=None, status_text=None):
         location_widths = [4 * cm] + [w * (11 * cm) / sum(col_widths) for w in col_widths]
         location_table = Table(location_data, colWidths=location_widths, rowHeights=0.9*cm)
         
-        part_table.setStyle(TableStyle([('GRID', (0, 0), (-1, -1), 1, colors.black), ('ALIGN', (0, 0), (0, -1), 'CENTER'), ('ALIGN', (1, 1), (1, -1), 'LEFT'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('LEFTPADDING', (0, 0), (-1, -1), 5), ('FONTNAME', (0, 0), (0, -1), 'Helvetica'), ('FONTSIZE', (0, 0), (0, -1), 16)]))
+        # Restored bold font to Part No/Description labels
+        part_table.setStyle(TableStyle([('GRID', (0, 0), (-1, -1), 1, colors.black), ('ALIGN', (0, 0), (0, -1), 'CENTER'), ('ALIGN', (1, 1), (1, -1), 'LEFT'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('LEFTPADDING', (0, 0), (-1, -1), 5), ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'), ('FONTSIZE', (0, 0), (0, -1), 16)]))
         
-        # UPDATE: Simplified location style as Paragraphs now handle font properties
         location_colors = [colors.HexColor('#E9967A'), colors.HexColor('#ADD8E6'), colors.HexColor('#90EE90'), colors.HexColor('#FFD700'), colors.HexColor('#ADD8E6'), colors.HexColor('#E9967A'), colors.HexColor('#90EE90')]
         location_style_cmds = [
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
