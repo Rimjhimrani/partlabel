@@ -65,7 +65,7 @@ def format_description(desc):
     if not desc or not isinstance(desc, str): desc = str(desc)
     return Paragraph(desc, desc_style)
 
-# --- Advanced Core Logic Functions (No Changes) ---
+# --- Advanced Core Logic Functions (MODIFIED) ---
 def find_required_columns(df):
     cols = {col.upper().strip(): col for col in df.columns}
     part_no_key = next((k for k in cols if 'PART' in k and ('NO' in k or 'NUM' in k)), None)
@@ -140,7 +140,7 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
                     
                     location_info = {
                         'Rack': base_rack_id, 'Rack No 1st': rack_num_1st, 'Rack No 2nd': rack_num_2nd,
-                        'Level': allowed_levels[level_idx], 'Cell': f"{cell_idx:02d}",
+                        'Level': allowed_levels[level_idx], 'Cell': f"{cell_idx}",
                         'Station No': station_no
                     }
                     
