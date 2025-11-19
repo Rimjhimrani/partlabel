@@ -28,13 +28,13 @@ desc_style = ParagraphStyle(
     name='Description', fontName='Helvetica', fontSize=20, alignment=TA_LEFT, leading=16, spaceBefore=2, spaceAfter=2
 )
 location_header_style = ParagraphStyle(
-    name='LocationHeader', fontName='Helvetica-Bold', fontSize=16, alignment=TA_CENTER, leading=18
+    name='LocationHeader', fontName='Helvetica', fontSize=16, alignment=TA_CENTER, leading=18
 )
 location_value_style_v1 = ParagraphStyle(
-    name='LocationValue_v1', fontName='Helvetica-Bold', fontSize=14, alignment=TA_CENTER, leading=16
+    name='LocationValue_v1', fontName='Helvetica', fontSize=14, alignment=TA_CENTER, leading=16
 )
 location_value_style_v2 = ParagraphStyle(
-    name='LocationValue_v2', fontName='Helvetica-Bold', fontSize=16, alignment=TA_CENTER, leading=18
+    name='LocationValue_v2', fontName='Helvetica', fontSize=16, alignment=TA_CENTER, leading=18
 )
 
 
@@ -204,7 +204,7 @@ def generate_labels_from_excel_v1(df, progress_bar=None, status_text=None):
         location_widths = [4 * cm] + [w * (11 * cm) / sum(col_proportions) for w in col_proportions]
         location_table = Table(location_data, colWidths=location_widths, rowHeights=0.8*cm)
         
-        part_style = TableStyle([('GRID', (0, 0), (-1, -1), 1, colors.black), ('ALIGN', (0, 0), (0, -1), 'CENTER'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'), ('FONTSIZE', (0, 0), (0, -1), 16)])
+        part_style = TableStyle([('GRID', (0, 0), (-1, -1), 1, colors.black), ('ALIGN', (0, 0), (0, -1), 'CENTER'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('FONTNAME', (0, 0), (0, -1), 'Helvetica'), ('FONTSIZE', (0, 0), (0, -1), 16)])
         part_table1.setStyle(part_style)
         part_table2.setStyle(part_style)
         
