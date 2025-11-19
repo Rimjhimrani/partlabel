@@ -29,13 +29,13 @@ desc_style = ParagraphStyle(
 )
 # New dedicated styles for Line Location table for perfect centering
 location_header_style = ParagraphStyle(
-    name='LocationHeader', fontName='Helvetica-Bold', fontSize=16, alignment=TA_CENTER, leading=18
+    name='LocationHeader', fontName='Helvetica', fontSize=16, alignment=TA_CENTER, leading=18
 )
 location_value_style_v1 = ParagraphStyle(
-    name='LocationValue_v1', fontName='Helvetica-Bold', fontSize=14, alignment=TA_CENTER, leading=16
+    name='LocationValue_v1', fontName='Helvetica', fontSize=14, alignment=TA_CENTER, leading=16
 )
 location_value_style_v2 = ParagraphStyle(
-    name='LocationValue_v2', fontName='Helvetica-Bold', fontSize=16, alignment=TA_CENTER, leading=18
+    name='LocationValue_v2', fontName='Helvetica', fontSize=16, alignment=TA_CENTER, leading=18
 )
 
 
