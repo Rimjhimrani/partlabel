@@ -317,7 +317,7 @@ def main():
                 
                 # --- Configuration now in the main area, inside an expander ---
                 with st.expander("⚙️ Step 1: Configure Dimensions and Rack Setup", expanded=True):
-                    st.subheader("1. Container Dimensions (Required)")
+                    st.subheader("1. Container Dimensions")
                     bin_dims = {}
                     for container in unique_containers:
                         dim = st.text_input(f"Dimensions for {container}", key=f"bindim_{container}", placeholder="e.g., 300x200x150mm")
