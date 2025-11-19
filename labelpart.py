@@ -298,8 +298,7 @@ def main():
     label_type = st.sidebar.selectbox("Choose Label Format:", ["Single Part", "Multiple Parts"])
     base_rack_id = st.sidebar.text_input(
         "Enter Storage Line Side Infrastructure", 
-        "R: Rack",
-        "TR: Tray",
+        "R",
         help="Enter the base identifier for your storage. E.g., R: Rack, TR: Tray, SH: Shelving Rack"
     )
     
