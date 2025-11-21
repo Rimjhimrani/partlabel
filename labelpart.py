@@ -11,7 +11,7 @@ from reportlab.lib.enums import TA_LEFT, TA_CENTER
 
 # --- Page Configuration ---
 st.set_page_config(
-    page_title="Part Label Generator",
+    page_title="AgiloSmartTag Studio",
     page_icon="🏷️",
     layout="wide"
 )
