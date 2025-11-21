@@ -3,8 +3,7 @@ import pandas as pd
 import os
 import io
 import re
-import tempfile
-from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer, Paragraph, PageBreak, Image
 from reportlab.lib.units import cm
@@ -13,6 +12,7 @@ from reportlab.lib.enums import TA_LEFT, TA_CENTER
 from io import BytesIO
 
 # --- Dependency Check for Bin Labels ---
+# This ensures the app doesn't crash if the libraries aren't installed.
 try:
     import qrcode
     from PIL import Image as PILImage
@@ -90,7 +90,6 @@ def find_required_columns(df):
     bus_model_key = next((k for k in cols if 'BUS' in k and 'MODEL' in k), None)
     station_no_key = next((k for k in cols if 'STATION' in k), None)
     container_type_key = next((k for k in cols if 'CONTAINER' in k), None)
-    # Added for Bin Labels
     qty_bin_key = next((k for k in cols if 'QTY/BIN' in k or 'QTY_BIN' in k), next((k for k in cols if 'QTY' in k and 'BIN' in k), None))
     qty_veh_key = next((k for k in cols if any(term in k for term in ['QTY/VEH', 'QTY_VEH', 'QTY PER VEH'])), None)
 
@@ -114,14 +113,21 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
         return None
 
     df_processed = df.copy()
-    # Build rename dictionary dynamically
-    rename_dict = {v: k.replace('_', ' ').title() for k, v in cols.items() if v}
-    df_processed.rename(columns=rename_dict, inplace=True)
-    df_processed.sort_values(by=['Station No', 'Container'], inplace=True)
-
+    # Keep original columns for bin label generation, but add standardized names for location logic
+    rename_map = {
+        cols['part_no']: 'Part No', cols['description']: 'Description',
+        cols['bus_model']: 'Bus Model', cols['station_no']: 'Station No',
+        cols['container']: 'Container', cols['qty_bin']: 'Qty/Bin',
+        cols['qty_veh']: 'Qty/Veh'
+    }
+    # Create a new df for processing with standardized names
+    df_loc_logic = df_processed[[v for v in rename_map.values() if v is not None]].copy()
+    df_loc_logic.rename(columns={v: k for k, v in rename_map.items()}, inplace=True)
+    df_loc_logic.sort_values(by=['Station No', 'Container'], inplace=True)
+    
     final_df_parts = []
     
-    for station_no, station_group in df_processed.groupby('Station No', sort=False):
+    for station_no, station_group in df_loc_logic.groupby('Station No', sort=False):
         if status_text: status_text.text(f"Processing station: {station_no}...")
 
         rack_idx, level_idx = 0, 0
@@ -169,23 +175,33 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
                         'Rack': base_rack_id, 'Rack No 1st': rack_num_1st, 'Rack No 2nd': rack_num_2nd,
                         'Level': allowed_levels[level_idx], 'Cell': str(cell_idx), 'Station No': station_no
                     }
-                    
-                    # Ensure all required columns exist even for EMPTY slots
-                    final_item = {
-                        'Part No': 'EMPTY', 'Description': '', 'Bus Model': '', 'Container': container_type,
-                        'Qty/Bin': '', 'Qty/Veh': ''
-                    }
-                    final_item.update(item) # Overwrite with actual part data if it exists
-                    final_item.update(location_info)
-                    
-                    final_df_parts.append(final_item)
+                    item.update(location_info)
+                    final_df_parts.append(item)
                 
                 level_idx += 1
                 if level_idx >= len(allowed_levels):
                     level_idx = 0
                     rack_idx += 1
+    
+    if not final_df_parts: return pd.DataFrame()
+    
+    # Merge assigned locations back to the original dataframe
+    df_located = pd.DataFrame(final_df_parts)
+    # To avoid column conflicts, we merge on an index
+    df_processed.reset_index(inplace=True)
+    df_located.reset_index(inplace=True)
 
-    return pd.DataFrame(final_df_parts) if final_df_parts else pd.DataFrame()
+    # Merge only the new location columns
+    location_cols = ['Rack', 'Rack No 1st', 'Rack No 2nd', 'Level', 'Cell', 'Station No']
+    # Ensure the 'Part No' from the located df is also present for alignment
+    df_merged = pd.merge(df_processed, df_located[['index', 'Part No'] + location_cols], on='index', how='left', suffixes=('', '_loc'))
+    
+    # Fill in standardized columns for easier use in generation functions
+    for col_name, orig_col in rename_map.items():
+        if orig_col and col_name not in df_merged.columns:
+            df_merged[col_name] = df_merged[orig_col]
+
+    return df_merged
 
 
 def create_location_key(row):
@@ -210,7 +226,7 @@ def generate_rack_labels_v1(df, progress_bar=None, status_text=None):
 
     for i, (location_key, group) in enumerate(df_grouped):
         if progress_bar: progress_bar.progress(int((i / total_locations) * 100))
-        if status_text: status_text.text(f"Processing V1 Label {i+1}/{total_locations}")
+        if status_text: status_text.text(f"Processing Rack Label {i+1}/{total_locations}")
         
         part1 = group.iloc[0]
         if str(part1['Part No']).upper() == 'EMPTY': continue
@@ -263,7 +279,7 @@ def generate_rack_labels_v2(df, progress_bar=None, status_text=None):
 
     for i, (location_key, group) in enumerate(df_grouped):
         if progress_bar: progress_bar.progress(int((i / total_locations) * 100))
-        if status_text: status_text.text(f"Processing V2 Label {i+1}/{total_locations}")
+        if status_text: status_text.text(f"Processing Rack Label {i+1}/{total_locations}")
 
         part1 = group.iloc[0]
         if str(part1['Part No']).upper() == 'EMPTY': continue
@@ -298,7 +314,7 @@ def generate_rack_labels_v2(df, progress_bar=None, status_text=None):
     return buffer, label_summary
 
 
-# --- PDF Generation (Bin Labels) ---
+# --- PDF Generation (Bin Labels Helpers) ---
 def generate_qr_code_image(data_string):
     if not QR_AVAILABLE: return None
     qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=10, border=4)
@@ -326,9 +342,37 @@ def detect_bus_model_and_qty(row):
         result[detected_model] = qty_veh
     return result
 
+def extract_store_location_data_from_excel(row_data):
+    """
+    Extracts store location data from a row for the bin label.
+    This version is robust and handles extra spaces and case-insensitivity.
+    """
+    col_lookup = {str(k).strip().upper(): k for k in row_data.keys()}
+
+    def get_clean_value(possible_names, default=''):
+        for name in possible_names:
+            clean_name = name.strip().upper()
+            if clean_name in col_lookup:
+                original_col_name = col_lookup[clean_name]
+                val = row_data.get(original_col_name)
+                if pd.notna(val) and str(val).strip().lower() not in ['nan', 'none', 'null', '']:
+                    return str(val).strip()
+        return default
+
+    store_location = get_clean_value(['Store Location', 'STORELOCATION', 'Store_Location'])
+    zone = get_clean_value(['ABB ZONE', 'ABB_ZONE', 'ABBZONE'])
+    location = get_clean_value(['ABB LOCATION', 'ABB_LOCATION', 'ABBLOCATION'])
+    floor = get_clean_value(['ABB FLOOR', 'ABB_FLOOR', 'ABBFLOOR'])
+    rack_no = get_clean_value(['ABB RACK NO', 'ABB_RACK_NO', 'ABBRACKNO'])
+    level_in_rack = get_clean_value(['ABB LEVEL IN RACK', 'ABB_LEVEL_IN_RACK', 'ABBLEVELINRACK'])
+    
+    station_name = '' # Intentionally blank to match original design
+    return [station_name, store_location, zone, location, floor, rack_no, level_in_rack]
+
+# --- PDF Generation (Bin Labels Main Function) ---
 def generate_bin_labels(df, progress_bar=None, status_text=None):
     if not QR_AVAILABLE:
-        st.error("❌ QR Code generation library not found. Please install `qrcode` and `Pillow`.")
+        st.error("❌ QR Code library not found. Please install `qrcode` and `Pillow`.")
         return None, {}
 
     STICKER_WIDTH, STICKER_HEIGHT = 10 * cm, 15 * cm
@@ -364,25 +408,33 @@ def generate_bin_labels(df, progress_bar=None, status_text=None):
         part_no = str(row.get('Part No', ''))
         desc = str(row.get('Description', ''))
         qty_bin = str(row.get('Qty/Bin', ''))
-        
+
         qr_data = f"Part No: {part_no}\nDesc: {desc}\nLine Loc: {'_'.join(extract_location_values(row))}"
         qr_image = generate_qr_code_image(qr_data)
+        
+        content_width = CONTENT_BOX_WIDTH - 0.2*cm
         
         main_table = Table([
             ["Part No", Paragraph(f"{part_no}", bin_bold_style)],
             ["Description", Paragraph(desc[:47] + "..." if len(desc) > 50 else desc, bin_desc_style)],
             ["Qty/Bin", Paragraph(qty_bin, bin_qty_style)]
-        ], colWidths=[(CONTENT_BOX_WIDTH - 0.2*cm)/3, (CONTENT_BOX_WIDTH - 0.2*cm)*2/3], rowHeights=[0.9*cm, 1.0*cm, 0.5*cm])
+        ], colWidths=[content_width/3, content_width*2/3], rowHeights=[0.9*cm, 1.0*cm, 0.5*cm])
         main_table.setStyle(TableStyle([('GRID', (0,0),(-1,-1), 1.2, colors.black),('ALIGN', (0,0),(-1,-1), 'CENTER'), ('VALIGN', (0,0),(-1,-1), 'MIDDLE'), ('FONTNAME', (0,0),(0,-1), 'Helvetica-Bold'), ('FONTSIZE', (0,0),(0,-1), 11)]))
 
-        line_loc_values = extract_location_values(row)
-        inner_table_width = (CONTENT_BOX_WIDTH - 0.2*cm) * 2 / 3
+        inner_table_width = content_width * 2 / 3
         col_props = [1.8, 2.4, 0.7, 0.7, 0.7, 0.7, 0.9]
         inner_col_widths = [w * inner_table_width / sum(col_props) for w in col_props]
         
+        store_loc_values = extract_store_location_data_from_excel(row)
+        store_loc_inner = Table([store_loc_values], colWidths=inner_col_widths, rowHeights=[0.5*cm])
+        store_loc_inner.setStyle(TableStyle([('GRID', (0,0),(-1,-1), 1.2, colors.black), ('ALIGN', (0,0),(-1,-1), 'CENTER'), ('VALIGN', (0,0),(-1,-1), 'MIDDLE'), ('FONTNAME', (0,0),(-1,-1), 'Helvetica-Bold'), ('FONTSIZE', (0,0),(-1,-1), 9)]))
+        store_loc_table = Table([[Paragraph("Store Location", bin_desc_style), store_loc_inner]], colWidths=[content_width/3, inner_table_width], rowHeights=[0.5*cm])
+        store_loc_table.setStyle(TableStyle([('GRID', (0,0),(-1,-1), 1.2, colors.black), ('ALIGN', (0,0),(-1,-1), 'CENTER'), ('VALIGN', (0,0),(-1,-1), 'MIDDLE')]))
+        
+        line_loc_values = extract_location_values(row)
         line_loc_inner = Table([line_loc_values], colWidths=inner_col_widths, rowHeights=[0.5*cm])
         line_loc_inner.setStyle(TableStyle([('GRID', (0,0),(-1,-1), 1.2, colors.black), ('ALIGN', (0,0),(-1,-1), 'CENTER'), ('VALIGN', (0,0),(-1,-1), 'MIDDLE'), ('FONTNAME', (0,0),(-1,-1), 'Helvetica-Bold'), ('FONTSIZE', (0,0),(-1,-1), 9)]))
-        line_loc_table = Table([[Paragraph("Line Location", bin_desc_style), line_loc_inner]], colWidths=[(CONTENT_BOX_WIDTH - 0.2*cm)/3, inner_table_width], rowHeights=[0.5*cm])
+        line_loc_table = Table([[Paragraph("Line Location", bin_desc_style), line_loc_inner]], colWidths=[content_width/3, inner_table_width], rowHeights=[0.5*cm])
         line_loc_table.setStyle(TableStyle([('GRID', (0,0),(-1,-1), 1.2, colors.black), ('ALIGN', (0,0),(-1,-1), 'CENTER'), ('VALIGN', (0,0),(-1,-1), 'MIDDLE')]))
 
         mtm_quantities = detect_bus_model_and_qty(row)
@@ -395,12 +447,10 @@ def generate_bin_labels(df, progress_bar=None, status_text=None):
         mtm_table = Table(mtm_data, colWidths=[1.2*cm, 1.2*cm, 1.2*cm], rowHeights=[0.75*cm, 0.75*cm])
         mtm_table.setStyle(TableStyle([('GRID', (0,0),(-1,-1), 1.2, colors.black), ('ALIGN', (0,0),(-1,-1), 'CENTER'), ('VALIGN', (0,0),(-1,-1), 'MIDDLE'), ('FONTNAME', (0,0),(-1,0), 'Helvetica-Bold'), ('FONTSIZE', (0,0),(-1,-1), 9)]))
 
-        bottom_row = Table([
-            [mtm_table, "", qr_image or ""]
-        ], colWidths=[3.6*cm, (CONTENT_BOX_WIDTH - 0.2*cm) - 3.6*cm - 2.5*cm, 2.5*cm], rowHeights=[2.5*cm])
+        bottom_row = Table([[mtm_table, "", qr_image or ""]], colWidths=[3.6*cm, content_width - 3.6*cm - 2.5*cm, 2.5*cm], rowHeights=[2.5*cm])
         bottom_row.setStyle(TableStyle([('VALIGN', (0,0),(-1,-1), 'MIDDLE')]))
 
-        all_elements.extend([main_table, line_loc_table, Spacer(1, 0.3*cm), bottom_row])
+        all_elements.extend([main_table, store_loc_table, line_loc_table, Spacer(1, 0.2*cm), bottom_row])
         if i < total_labels - 1:
             all_elements.append(PageBreak())
 
@@ -419,6 +469,7 @@ def main():
     
     output_type = st.sidebar.selectbox("Choose Output Type:", ["Rack Labels", "Bin Labels"])
 
+    rack_label_format = "Single Part"
     if output_type == "Rack Labels":
         rack_label_format = st.sidebar.selectbox("Choose Rack Label Format:", ["Single Part", "Multiple Parts"])
 
@@ -429,7 +480,8 @@ def main():
 
     if uploaded_file:
         try:
-            df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+            df = pd.read_csv(uploaded_file, dtype=str) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file, dtype=str)
+            df.fillna('', inplace=True)
             st.success(f"✅ File loaded! Found {len(df)} rows.")
             
             cols = find_required_columns(df)
@@ -450,17 +502,15 @@ def main():
                     num_racks = st.number_input("Number of Racks (per station)", min_value=1, value=1, step=1)
                     
                     rack_configs = {}
-                    rack_dims = {} # To store rack dimensions for validation
+                    rack_dims = {}
                     for i in range(num_racks):
                         rack_name = f"Rack {i+1:02d}"
                         col1, col2 = st.columns(2)
                         
                         with col1:
                             st.markdown(f"**Settings for {rack_name}**")
-                            # --- THIS IS THE RESTORED RACK DIMENSION INPUT ---
                             r_dim = st.text_input(f"Dimensions for {rack_name}", key=f"rackdim_{rack_name}", placeholder="e.g., 1200x1000x2000mm")
                             rack_dims[rack_name] = r_dim
-                            # --- END OF RESTORED INPUT ---
                             levels = st.multiselect(f"Available Levels for {rack_name}",
                                 options=['A','B','C','D','E','F','G','H'], default=['A','B','C','D','E'], key=f"levels_{rack_name}")
                         
@@ -471,64 +521,55 @@ def main():
                                 b_count = st.number_input(f"Capacity of '{container}' Bins", min_value=0, value=0, step=1, key=f"bcount_{rack_name}_{container}")
                                 if b_count > 0: rack_bin_counts[container] = b_count
                         
-                        rack_configs[rack_name] = {
-                            'dimensions': r_dim, # Storing the dimension
-                            'levels': levels, 
-                            'rack_bin_counts': rack_bin_counts
-                        }
+                        rack_configs[rack_name] = {'dimensions': r_dim, 'levels': levels, 'rack_bin_counts': rack_bin_counts}
                         st.markdown("---")
 
                 if st.button("🚀 Generate PDF Labels", type="primary"):
-                    # --- VALIDATION LOGIC UPDATED TO INCLUDE RACK DIMS ---
                     missing_bin_dims = [name for name, dim in bin_dims.items() if not dim]
                     missing_rack_dims = [name for name, dim in rack_dims.items() if not dim]
                     
                     error_messages = []
-                    if missing_bin_dims:
-                        error_messages.append(f"container dimensions for: {', '.join(missing_bin_dims)}")
-                    if missing_rack_dims:
-                        error_messages.append(f"rack dimensions for: {', '.join(missing_rack_dims)}")
+                    if missing_bin_dims: error_messages.append(f"container dimensions for: {', '.join(missing_bin_dims)}")
+                    if missing_rack_dims: error_messages.append(f"rack dimensions for: {', '.join(missing_rack_dims)}")
 
                     if error_messages:
                         st.error(f"❌ Please provide all required information. Missing {'; '.join(error_messages)}.")
-                        st.stop()
-                    # --- END OF VALIDATION UPDATE ---
-
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    try:
-                        df_processed = automate_location_assignment(df, base_rack_id, rack_configs, status_text)
-                        
-                        if df_processed is not None and not df_processed.empty:
-                            pdf_buffer, label_summary = None, {}
+                    else:
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        try:
+                            df_processed = automate_location_assignment(df, base_rack_id, rack_configs, status_text)
                             
-                            if output_type == "Rack Labels":
-                                gen_func = generate_rack_labels_v2 if rack_label_format == "Single Part" else generate_rack_labels_v1
-                                pdf_buffer, label_summary = gen_func(df_processed, progress_bar, status_text)
-                            elif output_type == "Bin Labels":
-                                pdf_buffer, label_summary = generate_bin_labels(df_processed, progress_bar, status_text)
+                            if df_processed is not None and not df_processed.empty:
+                                pdf_buffer, label_summary = None, {}
+                                
+                                if output_type == "Rack Labels":
+                                    gen_func = generate_rack_labels_v2 if rack_label_format == "Single Part" else generate_rack_labels_v1
+                                    pdf_buffer, label_summary = gen_func(df_processed, progress_bar, status_text)
+                                elif output_type == "Bin Labels":
+                                    pdf_buffer, label_summary = generate_bin_labels(df_processed, progress_bar, status_text)
 
-                            if pdf_buffer and sum(label_summary.values()) > 0:
-                                total_labels = sum(label_summary.values())
-                                status_text.text(f"✅ PDF with {total_labels} labels generated successfully!")
-                                file_name_suffix = "rack_labels.pdf" if output_type == "Rack Labels" else "bin_labels.pdf"
-                                file_name = f"{os.path.splitext(uploaded_file.name)[0]}_{file_name_suffix}"
-                                st.download_button(label="📥 Download PDF", data=pdf_buffer.getvalue(), file_name=file_name, mime="application/pdf")
+                                if pdf_buffer and sum(label_summary.values()) > 0:
+                                    total_labels = sum(label_summary.values())
+                                    status_text.text(f"✅ PDF with {total_labels} labels generated successfully!")
+                                    file_name_suffix = "rack_labels.pdf" if output_type == "Rack Labels" else "bin_labels.pdf"
+                                    file_name = f"{os.path.splitext(uploaded_file.name)[0]}_{file_name_suffix}"
+                                    st.download_button(label="📥 Download PDF", data=pdf_buffer.getvalue(), file_name=file_name, mime="application/pdf")
 
-                                st.markdown("---")
-                                st.subheader("📊 Generation Summary")
-                                summary_df = pd.DataFrame(list(label_summary.items()), columns=['Location', 'Number of Labels']).sort_values(by='Location').reset_index(drop=True)
-                                st.table(summary_df)
+                                    st.markdown("---")
+                                    st.subheader("📊 Generation Summary")
+                                    summary_df = pd.DataFrame(list(label_summary.items()), columns=['Location', 'Number of Labels']).sort_values(by='Location').reset_index(drop=True)
+                                    st.table(summary_df)
+                                else:
+                                    st.warning("⚠️ No labels were generated. Check your input and rack capacities.")
                             else:
-                                st.warning("⚠️ No labels were generated. Check your input and rack capacities.")
-                        else:
-                            st.error("❌ No data was processed. Check input file and configurations.")
-                    except Exception as e:
-                        st.error(f"❌ An unexpected error occurred: {e}")
-                        st.exception(e)
-                    finally:
-                        progress_bar.empty()
-                        status_text.empty()
+                                st.error("❌ No data was processed. Check input file and configurations.")
+                        except Exception as e:
+                            st.error(f"❌ An unexpected error occurred: {e}")
+                            st.exception(e)
+                        finally:
+                            progress_bar.empty()
+                            status_text.empty()
             else:
                 st.error("❌ A column containing 'Container' is required and could not be found.")
         except Exception as e:
