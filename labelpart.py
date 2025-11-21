@@ -417,7 +417,6 @@ def main():
 
     st.sidebar.title("📄 Label Options")
     
-    # --- NEW: Label Type Selection ---
     output_type = st.sidebar.selectbox("Choose Output Type:", ["Rack Labels", "Bin Labels"])
 
     if output_type == "Rack Labels":
@@ -438,7 +437,19 @@ def main():
             if cols['container']:
                 unique_containers = get_unique_containers(df, cols['container'])
                 
-                with st.expander("⚙️ Step 1: Configure Rack Setup (Applied to Each Station)", expanded=True):
+                with st.expander("⚙️ Step 1: Configure Dimensions and Rack Setup (Applied to Each Station)", expanded=True):
+                    
+                    # --- THIS SECTION HAS BEEN ADDED BACK ---
+                    st.subheader("1. Container Dimensions")
+                    bin_dims = {}
+                    for container in unique_containers:
+                        # Creates a text input field for each unique container type
+                        dim = st.text_input(f"Dimensions for {container}", key=f"bindim_{container}", placeholder="e.g., 300x200x150mm")
+                        bin_dims[container] = dim
+                    st.markdown("---")
+                    # --- END OF ADDED SECTION ---
+
+                    st.subheader("2. Rack Dimensions & Bin/Level Capacity")
                     num_racks = st.number_input("Number of Racks (per station)", min_value=1, value=1, step=1)
                     rack_configs = {}
                     for i in range(num_racks):
@@ -459,6 +470,12 @@ def main():
                         st.markdown("---")
 
                 if st.button("🚀 Generate PDF Labels", type="primary"):
+                    # Check if bin dimensions are provided
+                    missing_bin_dims = [name for name, dim in bin_dims.items() if not dim]
+                    if missing_bin_dims:
+                        st.error(f"❌ Please provide all required container dimensions for: {', '.join(missing_bin_dims)}.")
+                        st.stop()
+
                     progress_bar = st.progress(0)
                     status_text = st.empty()
                     try:
@@ -467,7 +484,6 @@ def main():
                         if df_processed is not None and not df_processed.empty:
                             pdf_buffer, label_summary = None, {}
                             
-                            # --- Call correct generation function based on user choice ---
                             if output_type == "Rack Labels":
                                 gen_func = generate_rack_labels_v2 if rack_label_format == "Single Part" else generate_rack_labels_v1
                                 pdf_buffer, label_summary = gen_func(df_processed, progress_bar, status_text)
