@@ -83,7 +83,6 @@ def format_description(desc):
 
 # --- Core Logic Functions (Shared) ---
 def find_required_columns(df):
-    # Returns a dictionary of original column names found in the dataframe
     cols_map = {col.strip().upper(): col for col in df.columns}
     
     def find_col(patterns):
@@ -110,16 +109,13 @@ def get_unique_containers(df, container_col):
     if not container_col or container_col not in df.columns: return []
     return sorted(df[container_col].dropna().astype(str).unique())
 
-# --- CORRECTED Location Assignment Function ---
 def automate_location_assignment(df, base_rack_id, rack_configs, status_text=None):
-    # Standardize column names for processing
     required_cols = find_required_columns(df)
     
     if not all([required_cols['Part No'], required_cols['Container'], required_cols['Station No']]):
         st.error("❌ 'Part Number', 'Container Type', or 'Station No' column not found.")
         return None
 
-    # Create a working copy with standardized names
     df_processed = df.copy()
     rename_dict = {v: k for k, v in required_cols.items() if v}
     df_processed.rename(columns=rename_dict, inplace=True)
@@ -165,7 +161,6 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
                 num_empty_slots = level_capacity - len(parts_for_level)
                 level_items = parts_for_level + ([{'Part No': 'EMPTY'}] * num_empty_slots)
                 
-                # Create a template for empty items based on a real item's columns
                 item_template = {col: '' for col in df_processed.columns}
 
                 for cell_idx, item in enumerate(level_items, 1):
@@ -193,7 +188,6 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
                     rack_idx += 1
     
     if not final_parts_list: return pd.DataFrame()
-    # The returned DataFrame now correctly represents every single slot.
     return pd.DataFrame(final_parts_list)
 
 def create_location_key(row):
@@ -203,7 +197,7 @@ def extract_location_values(row):
     return [str(row.get(c, '')) for c in ['Bus Model', 'Station No', 'Rack', 'Rack No 1st', 'Rack No 2nd', 'Level', 'Cell']]
 
 
-# --- PDF Generation (Rack Labels - No changes needed, they now receive correct data) ---
+# --- PDF Generation (Rack Labels) ---
 def generate_rack_labels_v1(df, progress_bar=None, status_text=None):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1*cm, bottomMargin=1*cm, leftMargin=1.5*cm, rightMargin=1.5*cm)
@@ -220,18 +214,18 @@ def generate_rack_labels_v1(df, progress_bar=None, status_text=None):
         if progress_bar: progress_bar.progress(int((i / total_locations) * 100))
         if status_text: status_text.text(f"Processing Rack Label {i+1}/{total_locations}")
         
-        part1 = group.iloc[0]
-        if str(part1['Part No']).upper() == 'EMPTY': continue
+        part1 = group.iloc[0].to_dict()
+        if str(part1.get('Part No', '')).upper() == 'EMPTY': continue
 
         rack_key = f"ST-{part1.get('Station No', 'NA')} / Rack {part1.get('Rack No 1st', '0')}{part1.get('Rack No 2nd', '0')}"
         label_summary[rack_key] = label_summary.get(rack_key, 0) + 1
 
         if label_count > 0 and label_count % 4 == 0: elements.append(PageBreak())
         
-        part2 = group.iloc[1] if len(group) > 1 else part1
+        part2 = group.iloc[1].to_dict() if len(group) > 1 else part1
         
-        part_table1 = Table([['Part No', format_part_no_v1(str(part1['Part No']))], ['Description', format_description_v1(str(part1['Description']))]], colWidths=[4*cm, 11*cm], rowHeights=[1.3*cm, 0.8*cm])
-        part_table2 = Table([['Part No', format_part_no_v1(str(part2['Part No']))], ['Description', format_description_v1(str(part2['Description']))]], colWidths=[4*cm, 11*cm], rowHeights=[1.3*cm, 0.8*cm])
+        part_table1 = Table([['Part No', format_part_no_v1(str(part1.get('Part No','')))], ['Description', format_description_v1(str(part1.get('Description','')))]], colWidths=[4*cm, 11*cm], rowHeights=[1.3*cm, 0.8*cm])
+        part_table2 = Table([['Part No', format_part_no_v1(str(part2.get('Part No','')))], ['Description', format_description_v1(str(part2.get('Description','')))]], colWidths=[4*cm, 11*cm], rowHeights=[1.3*cm, 0.8*cm])
         
         location_values = extract_location_values(part1)
         location_data = [[Paragraph('Line Location', location_header_style)] + [Paragraph(str(val), location_value_style_v1) for val in location_values]]
@@ -273,15 +267,15 @@ def generate_rack_labels_v2(df, progress_bar=None, status_text=None):
         if progress_bar: progress_bar.progress(int((i / total_locations) * 100))
         if status_text: status_text.text(f"Processing Rack Label {i+1}/{total_locations}")
 
-        part1 = group.iloc[0]
-        if str(part1['Part No']).upper() == 'EMPTY': continue
+        part1 = group.iloc[0].to_dict()
+        if str(part1.get('Part No', '')).upper() == 'EMPTY': continue
         
         rack_key = f"ST-{part1.get('Station No', 'NA')} / Rack {part1.get('Rack No 1st', '0')}{part1.get('Rack No 2nd', '0')}"
         label_summary[rack_key] = label_summary.get(rack_key, 0) + 1
             
         if label_count > 0 and label_count % 4 == 0: elements.append(PageBreak())
 
-        part_table = Table([['Part No', format_part_no_v2(str(part1['Part No']))], ['Description', format_description(str(part1['Description']))]], colWidths=[4*cm, 11*cm], rowHeights=[1.9*cm, 2.1*cm])
+        part_table = Table([['Part No', format_part_no_v2(str(part1.get('Part No','')))], ['Description', format_description(str(part1.get('Description','')))]], colWidths=[4*cm, 11*cm], rowHeights=[1.9*cm, 2.1*cm])
         
         location_values = extract_location_values(part1)
         location_data = [[Paragraph('Line Location', location_header_style)] + [Paragraph(str(val), location_value_style_v2) for val in location_values]]
@@ -435,7 +429,14 @@ def generate_bin_labels(df, progress_bar=None, status_text=None):
         mtm_table = Table(mtm_data, colWidths=[1.2*cm, 1.2*cm, 1.2*cm], rowHeights=[0.75*cm, 0.75*cm])
         mtm_table.setStyle(TableStyle([('GRID', (0,0),(-1,-1), 1.2, colors.black), ('ALIGN', (0,0),(-1,-1), 'CENTER'), ('VALIGN', (0,0),(-1,-1), 'MIDDLE'), ('FONTNAME', (0,0),(-1,0), 'Helvetica-Bold'), ('FONTSIZE', (0,0),(-1,-1), 9)]))
 
-        bottom_row = Table([[mtm_table, "", qr_image or ""]], colWidths=[3.6*cm, content_width - 3.6*cm - 2.5*cm, 2.5*cm], rowHeights=[2.5*cm])
+        mtm_width, qr_width, gap_width = 3.6 * cm, 2.5 * cm, 1.0 * cm
+        remaining_width = content_width - mtm_width - gap_width - qr_width
+        
+        bottom_row = Table(
+            [[mtm_table, "", qr_image or "", ""]],
+            colWidths=[mtm_width, gap_width, qr_width, remaining_width],
+            rowHeights=[2.5*cm]
+        )
         bottom_row.setStyle(TableStyle([('VALIGN', (0,0),(-1,-1), 'MIDDLE')]))
 
         all_elements.extend([main_table, store_loc_table, line_loc_table, Spacer(1, 0.2*cm), bottom_row])
