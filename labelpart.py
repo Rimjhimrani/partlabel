@@ -401,7 +401,7 @@ def generate_bin_labels(df, progress_bar=None, status_text=None):
             ["Description", Paragraph(desc[:47] + "..." if len(desc) > 50 else desc, bin_desc_style)],
             ["Qty/Bin", Paragraph(qty_bin, bin_qty_style)]
         ], colWidths=[content_width/3, content_width*2/3], rowHeights=[0.9*cm, 1.0*cm, 0.5*cm])
-        main_table.setStyle(TableStyle([('GRID', (0,0),(-1,-1), 1.2, colors.black),('ALIGN', (0,0),(-1,-1), 'CENTER'), ('VALIGN', (0,0),(-1,-1), 'MIDDLE'), ('FONTNAME', (0,0),(0,-1), 'Helvetica-Bold'), ('FONTSIZE', (0,0),(0,-1), 11)]))
+        main_table.setStyle(TableStyle([('GRID', (0,0),(-1,-1), 1.2, colors.black),('ALIGN', (0,0),(-1,-1), 'CENTER'), ('VALIGN', (0,0),(-1,-1), 'MIDDLE'), ('FONTNAME', (0,0),(0,-1), 'Helvetica'), ('FONTSIZE', (0,0),(0,-1), 11)]))
 
         inner_table_width = content_width * 2 / 3
         col_props = [1.8, 2.4, 0.7, 0.7, 0.7, 0.7, 0.9]
