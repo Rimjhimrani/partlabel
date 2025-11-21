@@ -439,26 +439,31 @@ def main():
                 
                 with st.expander("⚙️ Step 1: Configure Dimensions and Rack Setup (Applied to Each Station)", expanded=True):
                     
-                    # --- THIS SECTION HAS BEEN ADDED BACK ---
                     st.subheader("1. Container Dimensions")
                     bin_dims = {}
                     for container in unique_containers:
-                        # Creates a text input field for each unique container type
                         dim = st.text_input(f"Dimensions for {container}", key=f"bindim_{container}", placeholder="e.g., 300x200x150mm")
                         bin_dims[container] = dim
                     st.markdown("---")
-                    # --- END OF ADDED SECTION ---
 
                     st.subheader("2. Rack Dimensions & Bin/Level Capacity")
                     num_racks = st.number_input("Number of Racks (per station)", min_value=1, value=1, step=1)
+                    
                     rack_configs = {}
+                    rack_dims = {} # To store rack dimensions for validation
                     for i in range(num_racks):
                         rack_name = f"Rack {i+1:02d}"
                         col1, col2 = st.columns(2)
+                        
                         with col1:
                             st.markdown(f"**Settings for {rack_name}**")
+                            # --- THIS IS THE RESTORED RACK DIMENSION INPUT ---
+                            r_dim = st.text_input(f"Dimensions for {rack_name}", key=f"rackdim_{rack_name}", placeholder="e.g., 1200x1000x2000mm")
+                            rack_dims[rack_name] = r_dim
+                            # --- END OF RESTORED INPUT ---
                             levels = st.multiselect(f"Available Levels for {rack_name}",
                                 options=['A','B','C','D','E','F','G','H'], default=['A','B','C','D','E'], key=f"levels_{rack_name}")
+                        
                         with col2:
                             st.markdown(f"**Bin Capacity Per Level for {rack_name}**")
                             rack_bin_counts = {}
@@ -466,15 +471,28 @@ def main():
                                 b_count = st.number_input(f"Capacity of '{container}' Bins", min_value=0, value=0, step=1, key=f"bcount_{rack_name}_{container}")
                                 if b_count > 0: rack_bin_counts[container] = b_count
                         
-                        rack_configs[rack_name] = {'levels': levels, 'rack_bin_counts': rack_bin_counts}
+                        rack_configs[rack_name] = {
+                            'dimensions': r_dim, # Storing the dimension
+                            'levels': levels, 
+                            'rack_bin_counts': rack_bin_counts
+                        }
                         st.markdown("---")
 
                 if st.button("🚀 Generate PDF Labels", type="primary"):
-                    # Check if bin dimensions are provided
+                    # --- VALIDATION LOGIC UPDATED TO INCLUDE RACK DIMS ---
                     missing_bin_dims = [name for name, dim in bin_dims.items() if not dim]
+                    missing_rack_dims = [name for name, dim in rack_dims.items() if not dim]
+                    
+                    error_messages = []
                     if missing_bin_dims:
-                        st.error(f"❌ Please provide all required container dimensions for: {', '.join(missing_bin_dims)}.")
+                        error_messages.append(f"container dimensions for: {', '.join(missing_bin_dims)}")
+                    if missing_rack_dims:
+                        error_messages.append(f"rack dimensions for: {', '.join(missing_rack_dims)}")
+
+                    if error_messages:
+                        st.error(f"❌ Please provide all required information. Missing {'; '.join(error_messages)}.")
                         st.stop()
+                    # --- END OF VALIDATION UPDATE ---
 
                     progress_bar = st.progress(0)
                     status_text = st.empty()
