@@ -12,7 +12,6 @@ from reportlab.lib.enums import TA_LEFT, TA_CENTER
 from io import BytesIO
 
 # --- Dependency Check for Bin Labels ---
-# This ensures the app doesn't crash if the libraries aren't installed.
 try:
     import qrcode
     from PIL import Image as PILImage
@@ -84,50 +83,51 @@ def format_description(desc):
 
 # --- Core Logic Functions (Shared) ---
 def find_required_columns(df):
-    cols = {col.upper().strip(): col for col in df.columns}
-    part_no_key = next((k for k in cols if 'PART' in k and ('NO' in k or 'NUM' in k)), None)
-    desc_key = next((k for k in cols if 'DESC' in k), None)
-    bus_model_key = next((k for k in cols if 'BUS' in k and 'MODEL' in k), None)
-    station_no_key = next((k for k in cols if 'STATION' in k), None)
-    container_type_key = next((k for k in cols if 'CONTAINER' in k), None)
-    qty_bin_key = next((k for k in cols if 'QTY/BIN' in k or 'QTY_BIN' in k), next((k for k in cols if 'QTY' in k and 'BIN' in k), None))
-    qty_veh_key = next((k for k in cols if any(term in k for term in ['QTY/VEH', 'QTY_VEH', 'QTY PER VEH'])), None)
+    # Returns a dictionary of original column names found in the dataframe
+    cols_map = {col.strip().upper(): col for col in df.columns}
+    
+    def find_col(patterns):
+        for p in patterns:
+            if p in cols_map:
+                return cols_map[p]
+        return None
+
+    part_no_col = find_col([k for k in cols_map if 'PART' in k and ('NO' in k or 'NUM' in k)])
+    desc_col = find_col([k for k in cols_map if 'DESC' in k])
+    bus_model_col = find_col([k for k in cols_map if 'BUS' in k and 'MODEL' in k])
+    station_no_col = find_col([k for k in cols_map if 'STATION' in k])
+    container_col = find_col([k for k in cols_map if 'CONTAINER' in k])
+    qty_bin_col = find_col([k for k in cols_map if 'QTY/BIN' in k or 'QTY_BIN' in k or ('QTY' in k and 'BIN' in k)])
+    qty_veh_col = find_col([k for k in cols_map if 'QTY/VEH' in k or 'QTY_VEH' in k or ('QTY' in k and 'VEH' in k)])
 
     return {
-        'part_no': cols.get(part_no_key), 'description': cols.get(desc_key),
-        'bus_model': cols.get(bus_model_key), 'station_no': cols.get(station_no_key),
-        'container': cols.get(container_type_key), 'qty_bin': cols.get(qty_bin_key),
-        'qty_veh': cols.get(qty_veh_key)
+        'Part No': part_no_col, 'Description': desc_col, 'Bus Model': bus_model_col,
+        'Station No': station_no_col, 'Container': container_col, 'Qty/Bin': qty_bin_col,
+        'Qty/Veh': qty_veh_col
     }
 
 def get_unique_containers(df, container_col):
     if not container_col or container_col not in df.columns: return []
     return sorted(df[container_col].dropna().astype(str).unique())
 
+# --- CORRECTED Location Assignment Function ---
 def automate_location_assignment(df, base_rack_id, rack_configs, status_text=None):
-    cols = find_required_columns(df)
-    part_no_col, container_col, station_col = cols['part_no'], cols['container'], cols['station_no']
-
-    if not all([part_no_col, container_col, station_col]):
+    # Standardize column names for processing
+    required_cols = find_required_columns(df)
+    
+    if not all([required_cols['Part No'], required_cols['Container'], required_cols['Station No']]):
         st.error("❌ 'Part Number', 'Container Type', or 'Station No' column not found.")
         return None
 
+    # Create a working copy with standardized names
     df_processed = df.copy()
-    # Keep original columns for bin label generation, but add standardized names for location logic
-    rename_map = {
-        cols['part_no']: 'Part No', cols['description']: 'Description',
-        cols['bus_model']: 'Bus Model', cols['station_no']: 'Station No',
-        cols['container']: 'Container', cols['qty_bin']: 'Qty/Bin',
-        cols['qty_veh']: 'Qty/Veh'
-    }
-    # Create a new df for processing with standardized names
-    df_loc_logic = df_processed[[v for v in rename_map.values() if v is not None]].copy()
-    df_loc_logic.rename(columns={v: k for k, v in rename_map.items()}, inplace=True)
-    df_loc_logic.sort_values(by=['Station No', 'Container'], inplace=True)
+    rename_dict = {v: k for k, v in required_cols.items() if v}
+    df_processed.rename(columns=rename_dict, inplace=True)
+    df_processed.sort_values(by=['Station No', 'Container'], inplace=True)
+
+    final_parts_list = []
     
-    final_df_parts = []
-    
-    for station_no, station_group in df_loc_logic.groupby('Station No', sort=False):
+    for station_no, station_group in df_processed.groupby('Station No', sort=False):
         if status_text: status_text.text(f"Processing station: {station_no}...")
 
         rack_idx, level_idx = 0, 0
@@ -140,11 +140,10 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
                 slot_found = False
                 search_rack_idx, search_level_idx = rack_idx, level_idx
                 while search_rack_idx < len(sorted_racks):
-                    current_rack_name, current_config = sorted_racks[search_rack_idx]
-                    allowed_levels = current_config.get('levels', [])
-                    capacity = current_config.get('rack_bin_counts', {}).get(container_type, 0)
+                    rack_name, config = sorted_racks[search_rack_idx]
+                    levels, capacity = config.get('levels', []), config.get('rack_bin_counts', {}).get(container_type, 0)
 
-                    if capacity > 0 and search_level_idx < len(allowed_levels):
+                    if capacity > 0 and search_level_idx < len(levels):
                         slot_found = True
                         rack_idx, level_idx = search_rack_idx, search_level_idx
                         break
@@ -153,56 +152,49 @@ def automate_location_assignment(df, base_rack_id, rack_configs, status_text=Non
                     search_rack_idx += 1
                 
                 if not slot_found:
-                    st.warning(f"⚠️ Ran out of space at Station {station_no} for '{container_type}'.")
+                    st.warning(f"⚠️ Ran out of rack space at Station {station_no} for '{container_type}'.")
                     break
 
-                current_rack_name, current_config = sorted_racks[rack_idx]
-                allowed_levels = current_config.get('levels', [])
-                level_capacity = current_config.get('rack_bin_counts', {}).get(container_type, 0)
+                rack_name, config = sorted_racks[rack_idx]
+                levels = config.get('levels', [])
+                level_capacity = config.get('rack_bin_counts', {}).get(container_type, 0)
 
-                num_to_place = min(len(items_to_place), level_capacity)
-                parts_for_level = items_to_place[:num_to_place]
-                items_to_place = items_to_place[num_to_place:]
+                parts_for_level = items_to_place[:level_capacity]
+                items_to_place = items_to_place[level_capacity:]
                 
-                level_items = parts_for_level + [{'Part No': 'EMPTY'}] * (level_capacity - len(parts_for_level))
+                num_empty_slots = level_capacity - len(parts_for_level)
+                level_items = parts_for_level + ([{'Part No': 'EMPTY'}] * num_empty_slots)
+                
+                # Create a template for empty items based on a real item's columns
+                item_template = {col: '' for col in df_processed.columns}
 
                 for cell_idx, item in enumerate(level_items, 1):
-                    rack_num_val = ''.join(filter(str.isdigit, current_rack_name))
+                    rack_num_val = ''.join(filter(str.isdigit, rack_name))
                     rack_num_1st = rack_num_val[0] if len(rack_num_val) > 1 else '0'
                     rack_num_2nd = rack_num_val[1] if len(rack_num_val) > 1 else rack_num_val[0]
                     
                     location_info = {
                         'Rack': base_rack_id, 'Rack No 1st': rack_num_1st, 'Rack No 2nd': rack_num_2nd,
-                        'Level': allowed_levels[level_idx], 'Cell': str(cell_idx), 'Station No': station_no
+                        'Level': levels[level_idx], 'Cell': str(cell_idx), 'Station No': station_no
                     }
-                    item.update(location_info)
-                    final_df_parts.append(item)
-                
+
+                    if item['Part No'] == 'EMPTY':
+                        full_item = item_template.copy()
+                        full_item.update({'Part No': 'EMPTY', 'Container': container_type})
+                    else:
+                        full_item = item
+
+                    full_item.update(location_info)
+                    final_parts_list.append(full_item)
+
                 level_idx += 1
-                if level_idx >= len(allowed_levels):
+                if level_idx >= len(levels):
                     level_idx = 0
                     rack_idx += 1
     
-    if not final_df_parts: return pd.DataFrame()
-    
-    # Merge assigned locations back to the original dataframe
-    df_located = pd.DataFrame(final_df_parts)
-    # To avoid column conflicts, we merge on an index
-    df_processed.reset_index(inplace=True)
-    df_located.reset_index(inplace=True)
-
-    # Merge only the new location columns
-    location_cols = ['Rack', 'Rack No 1st', 'Rack No 2nd', 'Level', 'Cell', 'Station No']
-    # Ensure the 'Part No' from the located df is also present for alignment
-    df_merged = pd.merge(df_processed, df_located[['index', 'Part No'] + location_cols], on='index', how='left', suffixes=('', '_loc'))
-    
-    # Fill in standardized columns for easier use in generation functions
-    for col_name, orig_col in rename_map.items():
-        if orig_col and col_name not in df_merged.columns:
-            df_merged[col_name] = df_merged[orig_col]
-
-    return df_merged
-
+    if not final_parts_list: return pd.DataFrame()
+    # The returned DataFrame now correctly represents every single slot.
+    return pd.DataFrame(final_parts_list)
 
 def create_location_key(row):
     return '_'.join([str(row.get(c, '')) for c in ['Station No', 'Rack', 'Rack No 1st', 'Rack No 2nd', 'Level', 'Cell']])
@@ -211,7 +203,7 @@ def extract_location_values(row):
     return [str(row.get(c, '')) for c in ['Bus Model', 'Station No', 'Rack', 'Rack No 1st', 'Rack No 2nd', 'Level', 'Cell']]
 
 
-# --- PDF Generation (Rack Labels) ---
+# --- PDF Generation (Rack Labels - No changes needed, they now receive correct data) ---
 def generate_rack_labels_v1(df, progress_bar=None, status_text=None):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1*cm, bottomMargin=1*cm, leftMargin=1.5*cm, rightMargin=1.5*cm)
@@ -343,10 +335,6 @@ def detect_bus_model_and_qty(row):
     return result
 
 def extract_store_location_data_from_excel(row_data):
-    """
-    Extracts store location data from a row for the bin label.
-    This version is robust and handles extra spaces and case-insensitivity.
-    """
     col_lookup = {str(k).strip().upper(): k for k in row_data.keys()}
 
     def get_clean_value(possible_names, default=''):
@@ -366,7 +354,7 @@ def extract_store_location_data_from_excel(row_data):
     rack_no = get_clean_value(['ABB RACK NO', 'ABB_RACK_NO', 'ABBRACKNO'])
     level_in_rack = get_clean_value(['ABB LEVEL IN RACK', 'ABB_LEVEL_IN_RACK', 'ABBLEVELINRACK'])
     
-    station_name = '' # Intentionally blank to match original design
+    station_name = '' 
     return [station_name, store_location, zone, location, floor, rack_no, level_in_rack]
 
 # --- PDF Generation (Bin Labels Main Function) ---
@@ -484,10 +472,10 @@ def main():
             df.fillna('', inplace=True)
             st.success(f"✅ File loaded! Found {len(df)} rows.")
             
-            cols = find_required_columns(df)
+            required_cols_check = find_required_columns(df)
             
-            if cols['container']:
-                unique_containers = get_unique_containers(df, cols['container'])
+            if required_cols_check['Container']:
+                unique_containers = get_unique_containers(df, required_cols_check['Container'])
                 
                 with st.expander("⚙️ Step 1: Configure Dimensions and Rack Setup (Applied to Each Station)", expanded=True):
                     
@@ -561,9 +549,9 @@ def main():
                                     summary_df = pd.DataFrame(list(label_summary.items()), columns=['Location', 'Number of Labels']).sort_values(by='Location').reset_index(drop=True)
                                     st.table(summary_df)
                                 else:
-                                    st.warning("⚠️ No labels were generated. Check your input and rack capacities.")
+                                    st.warning("⚠️ No labels were generated. This could be due to no parts in the input file or rack capacity being zero.")
                             else:
-                                st.error("❌ No data was processed. Check input file and configurations.")
+                                st.error("❌ No data was processed. Please check the input file and configurations.")
                         except Exception as e:
                             st.error(f"❌ An unexpected error occurred: {e}")
                             st.exception(e)
@@ -571,7 +559,7 @@ def main():
                             progress_bar.empty()
                             status_text.empty()
             else:
-                st.error("❌ A column containing 'Container' is required and could not be found.")
+                st.error("❌ A column containing 'Container' is required and could not be found in the uploaded file.")
         except Exception as e:
             st.error(f"❌ Error reading file: {e}")
     else:
