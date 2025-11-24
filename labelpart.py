@@ -469,7 +469,7 @@ def main():
     mtm_models_input = ""
     if output_type == "Bin Labels":
         mtm_models_input = st.sidebar.text_input(
-            "Enter Vehicle Models for MTM Box", 
+            "Enter Vehicle Models", 
             "7M, 9M, 12M", 
             help="Enter comma-separated model names, e.g., 7M, 9M, 12M, Truck, Puma"
         )
