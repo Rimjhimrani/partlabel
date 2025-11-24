@@ -465,14 +465,13 @@ def main():
     if output_type == "Rack Labels":
         rack_label_format = st.sidebar.selectbox("Choose Rack Label Format:", ["Single Part", "Multiple Parts"])
 
-    # --- BIN LABEL SPECIFIC OPTIONS ---
-    mtm_models_input = ""
+    # --- BIN LABEL SPECIFIC OPTIONS (UPDATED UI) ---
+    model1, model2, model3 = "", "", ""
     if output_type == "Bin Labels":
-        mtm_models_input = st.sidebar.text_input(
-            "Enter Vehicle Models", 
-            "7M, 9M, 12M", 
-            help="Enter comma-separated model names, e.g., 7M, 9M, 12M, Truck, Puma"
-        )
+        st.sidebar.markdown("**Enter up to 3 Vehicle Models**")
+        model1 = st.sidebar.text_input("Vehicle Model 1", value="7M")
+        model2 = st.sidebar.text_input("Vehicle Model 2", value="9M")
+        model3 = st.sidebar.text_input("Vehicle Model 3", value="12M")
 
     base_rack_id = st.sidebar.text_input("Enter Storage Line Side Infrastructure", "R", help="E.g., R for Rack, TR for Tray.")
     st.sidebar.caption("EXAMPLE: **R** = RACK, **TR** = TRAY, **SH** = SHELVING")
@@ -548,8 +547,8 @@ def main():
                                     gen_func = generate_rack_labels_v2 if rack_label_format == "Single Part" else generate_rack_labels_v1
                                     pdf_buffer, label_summary = gen_func(df_processed, progress_bar, status_text)
                                 elif output_type == "Bin Labels":
-                                    # Parse the user input for MTM models
-                                    mtm_models = [model.strip() for model in mtm_models_input.split(',') if model.strip()]
+                                    # Collect models from the new, separate input fields
+                                    mtm_models = [model.strip() for model in [model1, model2, model3] if model.strip()]
                                     pdf_buffer, label_summary = generate_bin_labels(df_processed, mtm_models, progress_bar, status_text)
 
                                 if pdf_buffer and sum(label_summary.values()) > 0:
