@@ -312,22 +312,6 @@ def generate_qr_code_image(data_string):
     img_buffer.seek(0)
     return Image(img_buffer, width=2.5*cm, height=2.5*cm)
 
-def detect_bus_model_and_qty(row):
-    result = {'7M': '', '9M': '', '12M': ''}
-    qty_veh = str(row.get('Qty/Veh', ''))
-    bus_model = str(row.get('Bus Model', '')).upper()
-    
-    if not qty_veh: return result
-
-    detected_model = None
-    if '7M' in bus_model or '7' == bus_model: detected_model = '7M'
-    elif '9M' in bus_model or '9' == bus_model: detected_model = '9M'
-    elif '12M' in bus_model or '12' == bus_model: detected_model = '12M'
-    
-    if detected_model:
-        result[detected_model] = qty_veh
-    return result
-
 def extract_store_location_data_from_excel(row_data):
     col_lookup = {str(k).strip().upper(): k for k in row_data.keys()}
 
@@ -352,7 +336,7 @@ def extract_store_location_data_from_excel(row_data):
     return [station_name, store_location, zone, location, floor, rack_no, level_in_rack]
 
 # --- PDF Generation (Bin Labels Main Function) ---
-def generate_bin_labels(df, progress_bar=None, status_text=None):
+def generate_bin_labels(df, mtm_models, progress_bar=None, status_text=None):
     if not QR_AVAILABLE:
         st.error("❌ QR Code library not found. Please install `qrcode` and `Pillow`.")
         return None, {}
@@ -419,21 +403,39 @@ def generate_bin_labels(df, progress_bar=None, status_text=None):
         line_loc_table = Table([[Paragraph("Line Location", bin_desc_style), line_loc_inner]], colWidths=[content_width/3, inner_table_width], rowHeights=[0.5*cm])
         line_loc_table.setStyle(TableStyle([('GRID', (0,0),(-1,-1), 1.2, colors.black), ('ALIGN', (0,0),(-1,-1), 'CENTER'), ('VALIGN', (0,0),(-1,-1), 'MIDDLE')]))
 
-        mtm_quantities = detect_bus_model_and_qty(row)
-        mtm_data = [
-            ["7M", "9M", "12M"],
-            [Paragraph(f"<b>{mtm_quantities['7M']}</b>", bin_qty_style) if mtm_quantities['7M'] else "",
-             Paragraph(f"<b>{mtm_quantities['9M']}</b>", bin_qty_style) if mtm_quantities['9M'] else "",
-             Paragraph(f"<b>{mtm_quantities['12M']}</b>", bin_qty_style) if mtm_quantities['12M'] else ""]
-        ]
-        mtm_table = Table(mtm_data, colWidths=[1.2*cm, 1.2*cm, 1.2*cm], rowHeights=[0.75*cm, 0.75*cm])
-        mtm_table.setStyle(TableStyle([('GRID', (0,0),(-1,-1), 1.2, colors.black), ('ALIGN', (0,0),(-1,-1), 'CENTER'), ('VALIGN', (0,0),(-1,-1), 'MIDDLE'), ('FONTNAME', (0,0),(-1,0), 'Helvetica-Bold'), ('FONTSIZE', (0,0),(-1,-1), 9)]))
+        # --- DYNAMIC MTM TABLE GENERATION ---
+        mtm_table = None
+        if mtm_models:
+            qty_veh = str(row.get('Qty/Veh', ''))
+            bus_model = str(row.get('Bus Model', '')).strip().upper()
+            
+            # Prepare data row for the MTM table
+            mtm_qty_values = []
+            for model in mtm_models:
+                # Check for a match (case-insensitive)
+                if bus_model == model.strip().upper() and qty_veh:
+                    mtm_qty_values.append(Paragraph(f"<b>{qty_veh}</b>", bin_qty_style))
+                else:
+                    mtm_qty_values.append("")
+            
+            mtm_data = [mtm_models, mtm_qty_values]
+            
+            # Dynamically set column widths
+            num_models = len(mtm_models)
+            total_mtm_width = 3.6 * cm
+            col_width = total_mtm_width / num_models if num_models > 0 else total_mtm_width
+
+            mtm_table = Table(mtm_data, colWidths=[col_width] * num_models, rowHeights=[0.75*cm, 0.75*cm])
+            mtm_table.setStyle(TableStyle([('GRID', (0,0),(-1,-1), 1.2, colors.black), ('ALIGN', (0,0),(-1,-1), 'CENTER'), ('VALIGN', (0,0),(-1,-1), 'MIDDLE'), ('FONTNAME', (0,0),(-1,0), 'Helvetica-Bold'), ('FONTSIZE', (0,0),(-1,-1), 9)]))
 
         mtm_width, qr_width, gap_width = 3.6 * cm, 2.5 * cm, 1.0 * cm
         remaining_width = content_width - mtm_width - gap_width - qr_width
         
+        # Ensure mtm_table is not None before adding to layout
+        bottom_row_content = [mtm_table if mtm_table else "", "", qr_image or "", ""]
+
         bottom_row = Table(
-            [[mtm_table, "", qr_image or "", ""]],
+            [bottom_row_content],
             colWidths=[mtm_width, gap_width, qr_width, remaining_width],
             rowHeights=[2.5*cm]
         )
@@ -456,11 +458,21 @@ def main():
 
     st.sidebar.title("📄 Label Options")
     
-    output_type = st.sidebar.selectbox("Choose Output Type:", ["Rack Labels", "Bin Labels"])
+    output_type = st.sidebar.selectbox("Choose Output Type:", ["Bin Labels", "Rack Labels"])
 
+    # --- RACK LABEL SPECIFIC OPTIONS ---
     rack_label_format = "Single Part"
     if output_type == "Rack Labels":
         rack_label_format = st.sidebar.selectbox("Choose Rack Label Format:", ["Single Part", "Multiple Parts"])
+
+    # --- BIN LABEL SPECIFIC OPTIONS ---
+    mtm_models_input = ""
+    if output_type == "Bin Labels":
+        mtm_models_input = st.sidebar.text_input(
+            "Enter Vehicle Models for MTM Box", 
+            "7M, 9M, 12M", 
+            help="Enter comma-separated model names, e.g., 7M, 9M, 12M, Truck, Puma"
+        )
 
     base_rack_id = st.sidebar.text_input("Enter Storage Line Side Infrastructure", "R", help="E.g., R for Rack, TR for Tray.")
     st.sidebar.caption("EXAMPLE: **R** = RACK, **TR** = TRAY, **SH** = SHELVING")
@@ -536,7 +548,9 @@ def main():
                                     gen_func = generate_rack_labels_v2 if rack_label_format == "Single Part" else generate_rack_labels_v1
                                     pdf_buffer, label_summary = gen_func(df_processed, progress_bar, status_text)
                                 elif output_type == "Bin Labels":
-                                    pdf_buffer, label_summary = generate_bin_labels(df_processed, progress_bar, status_text)
+                                    # Parse the user input for MTM models
+                                    mtm_models = [model.strip() for model in mtm_models_input.split(',') if model.strip()]
+                                    pdf_buffer, label_summary = generate_bin_labels(df_processed, mtm_models, progress_bar, status_text)
 
                                 if pdf_buffer and sum(label_summary.values()) > 0:
                                     total_labels = sum(label_summary.values())
