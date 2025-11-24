@@ -325,6 +325,7 @@ def extract_store_location_data_from_excel(row_data):
                     return str(val).strip()
         return default
 
+    station_name = get_clean_value(['STATION NAME', 'Station Name', 'Station_name'])
     store_location = get_clean_value(['Store Location', 'STORELOCATION', 'Store_Location'])
     zone = get_clean_value(['ABB ZONE', 'ABB_ZONE', 'ABBZONE'])
     location = get_clean_value(['ABB LOCATION', 'ABB_LOCATION', 'ABBLOCATION'])
