@@ -486,6 +486,9 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.5*cm, bottomMargin=1.5*cm, leftMargin=1*cm, rightMargin=1*cm)
     elements = []
     
+    # --- CHANGE: Filter out EMPTY locations ---
+    df = df[df['Part No'].str.upper() != 'EMPTY'].copy()
+    
     # Pre-process grouping keys
     df['Rack Key'] = df.apply(lambda x: f"{x.get('Rack No 1st', '')}{x.get('Rack No 2nd', '')}", axis=1)
     
@@ -761,7 +764,6 @@ def main():
                                     count = sum(label_summary.values())
                                 elif output_type == "Rack List":
                                     fixed_logo_path = "agilomatrix_logo.png" 
-                                    # PASSED base_rack_id HERE
                                     pdf_buffer, count = generate_rack_list_pdf(
                                         df_processed, 
                                         base_rack_id, 
