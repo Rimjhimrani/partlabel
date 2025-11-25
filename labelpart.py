@@ -763,7 +763,7 @@ def main():
                                     pdf_buffer, label_summary = generate_bin_labels(df_processed, mtm_models, progress_bar, status_text)
                                     count = sum(label_summary.values())
                                 elif output_type == "Rack List":
-                                    fixed_logo_path = "agilomatrix_logo.png" 
+                                    fixed_logo_path = "Image.png" 
                                     pdf_buffer, count = generate_rack_list_pdf(
                                         df_processed, 
                                         base_rack_id, 
