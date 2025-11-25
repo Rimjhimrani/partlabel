@@ -332,7 +332,9 @@ def extract_store_location_data_from_excel(row_data):
     rack_no = get_clean_value(['ABB RACK NO', 'ABB_RACK_NO', 'ABBRACKNO'])
     level_in_rack = get_clean_value(['ABB LEVEL IN RACK', 'ABB_LEVEL_IN_RACK', 'ABBLEVELINRACK'])
     
-    station_name = '' 
+    # Updated: Now looks for 'ST. NAME (Short)' instead of being empty
+    station_name = get_clean_value(['ST. NAME (Short)', 'ST.NAME (Short)', 'ST NAME (Short)', 'ST. NAME', 'Station Name Short']) 
+    
     return [station_name, store_location, zone, location, floor, rack_no, level_in_rack]
 
 # --- PDF Generation (Bin Labels Main Function) ---
