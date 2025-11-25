@@ -332,7 +332,6 @@ def extract_store_location_data_from_excel(row_data):
     rack_no = get_clean_value(['ABB RACK NO', 'ABB_RACK_NO', 'ABBRACKNO'])
     level_in_rack = get_clean_value(['ABB LEVEL IN RACK', 'ABB_LEVEL_IN_RACK', 'ABBLEVELINRACK'])
     
-    # Updated: Now looks for 'ST. NAME (Short)' instead of being empty
     station_name = get_clean_value(['ST. NAME (Short)', 'ST.NAME (Short)', 'ST NAME (Short)', 'ST. NAME', 'Station Name Short']) 
     
     return [station_name, store_location, zone, location, floor, rack_no, level_in_rack]
@@ -376,9 +375,27 @@ def generate_bin_labels(df, mtm_models, progress_bar=None, status_text=None):
         part_no = str(row.get('Part No', ''))
         desc = str(row.get('Description', ''))
         qty_bin = str(row.get('Qty/Bin', ''))
+        qty_veh = str(row.get('Qty/Veh', ''))
 
-        qr_data = f"Part No: {part_no}\nDesc: {desc}\nLine Loc: {'_'.join(extract_location_values(row))}"
+        # --- Updated QR Code Logic ---
+        # Extract comprehensive data for QR code
+        store_loc_raw = extract_store_location_data_from_excel(row)
+        line_loc_raw = extract_location_values(row)
+
+        # Join lists for QR string, handling empty values
+        store_loc_str = "|".join([str(x).strip() for x in store_loc_raw])
+        line_loc_str = "|".join([str(x).strip() for x in line_loc_raw])
+
+        qr_data = (
+            f"Part No: {part_no}\n"
+            f"Desc: {desc}\n"
+            f"Qty/Bin: {qty_bin}\n"
+            f"Qty/Veh: {qty_veh}\n"
+            f"Store Loc: {store_loc_str}\n"
+            f"Line Loc: {line_loc_str}"
+        )
         qr_image = generate_qr_code_image(qr_data)
+        # -----------------------------
         
         content_width = CONTENT_BOX_WIDTH - 0.2*cm
         
