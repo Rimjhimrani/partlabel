@@ -4,15 +4,17 @@ import os
 import io
 import re
 import datetime
+from io import BytesIO
+
+# --- ReportLab Imports ---
 from reportlab.lib.pagesizes import A4, landscape, portrait
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer, Paragraph, PageBreak, Image as RLImage
 from reportlab.lib.units import cm
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
-from io import BytesIO
 
-# --- Dependency Check for Bin Labels ---
+# --- Dependency Check for Bin Labels (QR Codes) ---
 try:
     import qrcode
     from PIL import Image as PILImage
@@ -329,7 +331,7 @@ def generate_qr_code_image(data_string):
     img_buffer = BytesIO()
     qr_img.save(img_buffer, format='PNG')
     img_buffer.seek(0)
-    return Image(img_buffer, width=2.5*cm, height=2.5*cm)
+    return RLImage(img_buffer, width=2.5*cm, height=2.5*cm)
 
 def extract_store_location_data_from_excel(row_data):
     col_lookup = {str(k).strip().upper(): k for k in row_data.keys()}
@@ -479,7 +481,7 @@ def generate_bin_labels(df, mtm_models, progress_bar=None, status_text=None):
     return buffer, label_summary
 
 # --- PDF Generation (Rack List) ---
-def generate_rack_list_pdf(df, top_logo_file, top_logo_w, top_logo_h, fixed_logo_path, progress_bar=None, status_text=None):
+def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo_h, fixed_logo_path, progress_bar=None, status_text=None):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.5*cm, bottomMargin=1.5*cm, leftMargin=1*cm, rightMargin=1*cm)
     elements = []
@@ -506,10 +508,6 @@ def generate_rack_list_pdf(df, top_logo_file, top_logo_w, top_logo_h, fixed_logo
         bus_model = str(first_row.get('Bus Model', ''))
         
         # --- Top Header Section ---
-        header_data = [
-            [Paragraph("Document Ref No.:", rl_header_style), "", ""]
-        ]
-        
         # Top Logo handling
         top_logo_img = ""
         if top_logo_file:
@@ -527,9 +525,6 @@ def generate_rack_list_pdf(df, top_logo_file, top_logo_w, top_logo_h, fixed_logo
         elements.append(Spacer(1, 0.5*cm))
         
         # --- Master Info Table (Blue Headers) ---
-        # Structure: Station Name | Value | Station No | Value
-        #            Model        | Value | Rack No    | Value
-        
         master_data = [
             [Paragraph("STATION NAME", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=9)), 
              Paragraph(station_name, rl_cell_left_style),
@@ -542,58 +537,46 @@ def generate_rack_list_pdf(df, top_logo_file, top_logo_w, top_logo_h, fixed_logo
              Paragraph(f"Rack - {rack_key}", rl_cell_style)]
         ]
         
-        # Header Color: #8EAADB (Light Blue from screenshot)
         bg_blue = colors.HexColor("#8EAADB")
         
         master_table = Table(master_data, colWidths=[3.5*cm, 7.5*cm, 3.5*cm, 4.5*cm], rowHeights=[0.8*cm, 0.8*cm])
         master_table.setStyle(TableStyle([
             ('GRID', (0,0), (-1,-1), 1, colors.black),
-            ('BACKGROUND', (0,0), (0,1), bg_blue), # Col 1 headers
-            ('BACKGROUND', (2,0), (2,1), bg_blue), # Col 3 headers
+            ('BACKGROUND', (0,0), (0,1), bg_blue), 
+            ('BACKGROUND', (2,0), (2,1), bg_blue), 
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
             ('FONTNAME', (0,0), (-1,-1), 'Helvetica-Bold'),
             ('TEXTCOLOR', (0,0), (-1,-1), colors.black),
-            ('ALIGN', (0,0), (0,-1), 'LEFT'), # Header alignment
+            ('ALIGN', (0,0), (0,-1), 'LEFT'), 
             ('ALIGN', (2,0), (2,-1), 'LEFT'),
-            ('ALIGN', (1,0), (1,-1), 'LEFT'), # Value alignment
+            ('ALIGN', (1,0), (1,-1), 'LEFT'), 
             ('ALIGN', (3,0), (3,-1), 'CENTER'),
         ]))
         elements.append(master_table)
         
         # --- Data Table (Orange Headers) ---
-        # Headers: Zone | S.NO | Part No | Part Description | Container | Qty/Bin | Location
-        
         header_row = ["S.NO", "PART NO", "PART DESCRIPTION", "CONTAINER", "QTY/BIN", "LOCATION"]
         col_widths = [1.2*cm, 3.5*cm, 6.3*cm, 2.5*cm, 2.0*cm, 3.5*cm]
         
         if has_zone:
             header_row.insert(0, "ZONE")
-            col_widths.insert(0, 1.8*cm)
-            # Adjust other widths slightly to fit A4
             col_widths = [1.5*cm, 1.0*cm, 3.2*cm, 5.5*cm, 2.3*cm, 2.0*cm, 3.5*cm]
             
         data_rows = [header_row]
         
-        # Fill Data
-        # Sort group by Level/Cell or Zone if needed
         group_sorted = group.sort_values(by=['Level', 'Cell'])
-        
-        # Styles for Data Table
-        bg_orange = colors.HexColor("#F4B084") # Light Orange/Peach
+        bg_orange = colors.HexColor("#F4B084") 
         
         table_style_cmds = [
             ('GRID', (0,0), (-1,-1), 1, colors.black),
-            ('BACKGROUND', (0,0), (-1,0), bg_orange), # Header Row
+            ('BACKGROUND', (0,0), (-1,0), bg_orange), 
             ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
             ('ALIGN', (0,0), (-1,-1), 'CENTER'),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
             ('FONTSIZE', (0,0), (-1,-1), 9),
         ]
         
-        # Prepare Rows & handle Zone grouping (Span logic)
         previous_zone = None
-        start_row_idx = 1 # Data starts at row 1 (0 is header)
-        
         current_zone_start = 1
         
         for idx, row in enumerate(group_sorted.to_dict('records')):
@@ -603,9 +586,7 @@ def generate_rack_list_pdf(df, top_logo_file, top_logo_w, top_logo_h, fixed_logo
             cont = str(row.get('Container', ''))
             qty = str(row.get('Qty/Bin', ''))
             
-            # Construct Location: Station-Structure-Rack-Level-Cell
-            # Screenshot says: 9M-ST-0R-01-A1. Assuming format from extracted values.
-            # Using 'Line Location' style string or custom:
+            # Use base_rack_id here
             loc_str = f"{bus_model}-{row.get('Station No','')}-{base_rack_id}{rack_key}-{row.get('Level','')}{row.get('Cell','')}"
             
             row_data = [str(s_no), p_no, Paragraph(desc, rl_cell_left_style), cont, qty, loc_str]
@@ -614,23 +595,17 @@ def generate_rack_list_pdf(df, top_logo_file, top_logo_w, top_logo_h, fixed_logo
                 zone_val = str(row.get('Zone', ''))
                 row_data.insert(0, zone_val)
                 
-                # Logic for vertical span visual (simplified: repeat text or empty if same)
-                # ReportLab Table needs explicit SPAN commands for merging.
-                # To keep it simple and robust: we will print the zone. 
-                # If you want merging, we detect change.
                 if zone_val == previous_zone and idx > 0:
-                    row_data[0] = "" # Hide text
+                    row_data[0] = "" 
                 else:
                     if idx > 0:
-                        # End of previous zone span
-                        if current_zone_start < idx + 1: # +1 because of header
+                        if current_zone_start < idx + 1: 
                             table_style_cmds.append(('SPAN', (0, current_zone_start), (0, idx)))
                     current_zone_start = idx + 1
                     previous_zone = zone_val
             
             data_rows.append(row_data)
             
-        # Handle last zone span
         if has_zone and current_zone_start < len(data_rows):
             table_style_cmds.append(('SPAN', (0, current_zone_start), (0, len(data_rows)-1)))
 
@@ -643,7 +618,6 @@ def generate_rack_list_pdf(df, top_logo_file, top_logo_w, top_logo_h, fixed_logo
         # --- Footer Section ---
         today_date = datetime.date.today().strftime("%d-%m-%Y")
         
-        # Fixed Logo Logic
         fixed_logo_img = Paragraph("<b>Agilomatrix</b>", ParagraphStyle('LogoText', textColor=colors.darkblue))
         if os.path.exists(fixed_logo_path):
              fixed_logo_img = RLImage(fixed_logo_path, width=4.3*cm, height=1.5*cm)
@@ -658,15 +632,13 @@ def generate_rack_list_pdf(df, top_logo_file, top_logo_w, top_logo_h, fixed_logo
         footer_table = Table(footer_data, colWidths=[14*cm, 5*cm])
         footer_table.setStyle(TableStyle([
             ('VALIGN', (-1,1), (-1,-1), 'TOP'),
-            ('ALIGN', (-1,1), (-1,1), 'RIGHT'), # "Designed by" align right
-            ('ALIGN', (-1,2), (-1,2), 'RIGHT'), # Logo align right
-            ('SPAN', (-1, 2), (-1, 3)) # Merge logo rows if needed
+            ('ALIGN', (-1,1), (-1,1), 'RIGHT'), 
+            ('ALIGN', (-1,2), (-1,2), 'RIGHT'), 
+            ('SPAN', (-1, 2), (-1, 3)) 
         ]))
         
         elements.append(Spacer(1, 0.5*cm))
         elements.append(footer_table)
-        
-        # Page break after every Rack group
         elements.append(PageBreak())
         
     doc.build(elements)
@@ -788,10 +760,18 @@ def main():
                                     pdf_buffer, label_summary = generate_bin_labels(df_processed, mtm_models, progress_bar, status_text)
                                     count = sum(label_summary.values())
                                 elif output_type == "Rack List":
-                                    # Logic for Rack List
-                                    # Ensure a logo path exists for the 'Designed By' fixed logo
-                                    fixed_logo_path = "agilomatrix_logo.png" # EXPECTS THIS FILE IN ROOT
-                                    pdf_buffer, count = generate_rack_list_pdf(df_processed, top_logo_file, top_logo_w, top_logo_h, fixed_logo_path, progress_bar, status_text)
+                                    fixed_logo_path = "agilomatrix_logo.png" 
+                                    # PASSED base_rack_id HERE
+                                    pdf_buffer, count = generate_rack_list_pdf(
+                                        df_processed, 
+                                        base_rack_id, 
+                                        top_logo_file, 
+                                        top_logo_w, 
+                                        top_logo_h, 
+                                        fixed_logo_path, 
+                                        progress_bar, 
+                                        status_text
+                                    )
 
                                 if pdf_buffer and count > 0:
                                     status_text.text(f"✅ Generated {count} items successfully!")
