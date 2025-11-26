@@ -561,8 +561,6 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         ]))
         elements.append(master_table)
         
-        elements.append(Spacer(1, 0.2*cm))
-        
         # --- Data Table (Orange Headers) ---
         header_row = ["S.NO", "PART NO", "PART DESCRIPTION", "CONTAINER", "QTY/BIN", "LOCATION"]
         
