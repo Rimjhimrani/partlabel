@@ -502,6 +502,10 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
     # Check if 'Zone' exists in the data and has values
     has_zone = 'Zone' in df.columns and df['Zone'].notna().any()
     
+    # Define styles for the Master Table Values (Bold, Size 12)
+    master_value_style_left = ParagraphStyle(name='MasterValLeft', fontName='Helvetica-Bold', fontSize=12, alignment=TA_LEFT)
+    master_value_style_center = ParagraphStyle(name='MasterValCenter', fontName='Helvetica-Bold', fontSize=12, alignment=TA_CENTER)
+
     for i, ((station_no, rack_key), group) in enumerate(grouped):
         if progress_bar: progress_bar.progress(int(((i+1) / total_groups) * 100))
         if status_text: status_text.text(f"Generating List for Station {station_no} / Rack {rack_key}")
@@ -527,17 +531,17 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         elements.append(header_table)
         elements.append(Spacer(1, 0.5*cm))
         
-        # --- Master Info Table (Blue Headers) ---
+        # --- Master Info Table (Blue Headers AND Blue Values) ---
         master_data = [
             [Paragraph("STATION NAME", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=12)), 
-             Paragraph(station_name, rl_cell_left_style),
+             Paragraph(station_name, master_value_style_left),
              Paragraph("STATION NO", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=12)), 
-             Paragraph(str(station_no), rl_cell_style)],
+             Paragraph(str(station_no), master_value_style_center)],
             
             [Paragraph("MODEL", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=12)), 
-             Paragraph(bus_model, rl_cell_left_style),
+             Paragraph(bus_model, master_value_style_left),
              Paragraph("RACK NO", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=12)), 
-             Paragraph(f"Rack - {rack_key}", rl_cell_style)]
+             Paragraph(f"Rack - {rack_key}", master_value_style_center)]
         ]
         
         bg_blue = colors.HexColor("#8EAADB")
@@ -545,8 +549,7 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         master_table = Table(master_data, colWidths=[3.5*cm, 7.5*cm, 3.5*cm, 4.5*cm], rowHeights=[0.8*cm, 0.8*cm])
         master_table.setStyle(TableStyle([
             ('GRID', (0,0), (-1,-1), 1, colors.black),
-            ('BACKGROUND', (0,0), (0,1), bg_blue), 
-            ('BACKGROUND', (2,0), (2,1), bg_blue), 
+            ('BACKGROUND', (0,0), (-1,-1), bg_blue), # Blue background for ALL cells (headers and values)
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
             ('FONTNAME', (0,0), (-1,-1), 'Helvetica-Bold'),
             ('TEXTCOLOR', (0,0), (-1,-1), colors.black),
