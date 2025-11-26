@@ -585,7 +585,7 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
             ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
             ('ALIGN', (0,0), (-1,-1), 'CENTER'),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('FONTSIZE', (0,0), (-1,-1), 12),
+            ('FONTSIZE', (0,0), (-1,-1), 11),
             # 4. MODIFIED: Reduced cell padding to fit more rows
             ('TOPPADDING', (0,0), (-1,-1), 1),
             ('BOTTOMPADDING', (0,0), (-1,-1), 1),
