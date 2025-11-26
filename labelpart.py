@@ -483,9 +483,8 @@ def generate_bin_labels(df, mtm_models, progress_bar=None, status_text=None):
 # --- PDF Generation (Rack List) ---
 def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo_h, fixed_logo_path, progress_bar=None, status_text=None):
     buffer = io.BytesIO()
-    # 1. CHANGED: pagesize to landscape(A4)
-    # 2. CHANGED: Margins set to 1cm to allow max width
-    doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), topMargin=1.5*cm, bottomMargin=1.5*cm, leftMargin=1*cm, rightMargin=1*cm)
+    # 1. MODIFIED: Reduced Margins to 0.5cm
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), topMargin=0.5*cm, bottomMargin=0.5*cm, leftMargin=1*cm, rightMargin=1*cm)
     elements = []
     
     # --- CHANGE: Filter out EMPTY locations ---
@@ -525,14 +524,15 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
             except:
                 pass
         
-        # 3. CHANGED: Widths adjusted for landscape (Total ~27.5cm)
         header_table = Table([[Paragraph("Document Ref No.:", rl_header_style), "", top_logo_img]], colWidths=[5*cm, 17.5*cm, 5*cm])
         header_table.setStyle(TableStyle([
             ('VALIGN', (0,0), (-1,-1), 'TOP'),
             ('ALIGN', (-1,-1), (-1,-1), 'RIGHT'),
         ]))
         elements.append(header_table)
-        elements.append(Spacer(1, 0.5*cm))
+        
+        # 2. MODIFIED: Reduced spacer between Logo and Master Table
+        elements.append(Spacer(1, 0.1*cm))
         
         # --- Master Info Table (Blue Headers AND Blue Values) ---
         master_data = [
@@ -549,7 +549,6 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         
         bg_blue = colors.HexColor("#8EAADB")
         
-        # 4. CHANGED: Widths adjusted for landscape (Total ~27.5cm)
         master_table = Table(master_data, colWidths=[4*cm, 9.5*cm, 4*cm, 10*cm], rowHeights=[0.8*cm, 0.8*cm])
         master_table.setStyle(TableStyle([
             ('GRID', (0,0), (-1,-1), 1, colors.black),
@@ -564,16 +563,16 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         ]))
         elements.append(master_table)
         
+        # 3. MODIFIED: Reduced spacer between Master Table and Data Table
+        elements.append(Spacer(1, 0.2*cm))
+        
         # --- Data Table (Orange Headers) ---
         header_row = ["S.NO", "PART NO", "PART DESCRIPTION", "CONTAINER", "QTY/BIN", "LOCATION"]
         
-        # 5. CHANGED: Widths adjusted for landscape (Total ~27.5cm)
-        # Significantly increased Description (6.3->9.5) and Location (3.5->6.0)
         col_widths = [1.5*cm, 4.5*cm, 9.5*cm, 3.5*cm, 2.5*cm, 6.0*cm]
         
         if has_zone:
             header_row.insert(0, "ZONE")
-            # Adjusted for Zone scenario too
             col_widths = [2.0*cm, 1.3*cm, 4.0*cm, 8.2*cm, 3.5*cm, 2.5*cm, 6.0*cm]
             
         data_rows = [header_row]
@@ -588,6 +587,9 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
             ('ALIGN', (0,0), (-1,-1), 'CENTER'),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
             ('FONTSIZE', (0,0), (-1,-1), 11),
+            # 4. MODIFIED: Reduced cell padding to fit more rows
+            ('TOPPADDING', (0,0), (-1,-1), 1),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 1),
         ]
         
         previous_zone = None
@@ -627,7 +629,7 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         data_table.setStyle(TableStyle(table_style_cmds))
         
         elements.append(data_table)
-        elements.append(Spacer(1, 1*cm))
+        elements.append(Spacer(1, 0.5*cm))
         
         # --- Footer Section ---
         today_date = datetime.date.today().strftime("%d-%m-%Y")
@@ -636,7 +638,6 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         if os.path.exists(fixed_logo_path):
              fixed_logo_img = RLImage(fixed_logo_path, width=4.3*cm, height=1.5*cm)
         
-        # 6. CHANGED: Widths adjusted for landscape
         footer_data = [
             [Paragraph(f"Creation Date: {today_date}", rl_cell_left_style), ""],
             [Paragraph("<b>Verified by:</b>", rl_cell_left_style), Paragraph("Designed by:", ParagraphStyle('R', alignment=TA_RIGHT))],
