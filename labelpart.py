@@ -504,8 +504,8 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
     has_zone = 'Zone' in df.columns and df['Zone'].notna().any()
     
     # Define styles for the Master Table Values (Bold, Size 12)
-    master_value_style_left = ParagraphStyle(name='MasterValLeft', fontName='Helvetica-Bold', fontSize=14, alignment=TA_LEFT)
-    master_value_style_center = ParagraphStyle(name='MasterValCenter', fontName='Helvetica-Bold', fontSize=14, alignment=TA_CENTER)
+    master_value_style_left = ParagraphStyle(name='MasterValLeft', fontName='Helvetica-Bold', fontSize=13, alignment=TA_LEFT)
+    master_value_style_center = ParagraphStyle(name='MasterValCenter', fontName='Helvetica-Bold', fontSize=13, alignment=TA_CENTER)
 
     for i, ((station_no, rack_key), group) in enumerate(grouped):
         if progress_bar: progress_bar.progress(int(((i+1) / total_groups) * 100))
@@ -538,18 +538,18 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         master_data = [
             [Paragraph("STATION NAME", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=12)), 
              Paragraph(station_name, master_value_style_left),
-             Paragraph("STATION NO", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=14)), 
+             Paragraph("STATION NO", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=13)), 
              Paragraph(str(station_no), master_value_style_center)],
             
-            [Paragraph("MODEL", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=14)), 
+            [Paragraph("MODEL", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=13)), 
              Paragraph(bus_model, master_value_style_left),
-             Paragraph("RACK NO", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=14)), 
+             Paragraph("RACK NO", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=13)), 
              Paragraph(f"Rack - {rack_key}", master_value_style_center)]
         ]
         
         bg_blue = colors.HexColor("#8EAADB")
         
-        master_table = Table(master_data, colWidths=[4*cm, 9.5*cm, 4*cm, 10*cm], rowHeights=[1*cm, 1*cm])
+        master_table = Table(master_data, colWidths=[4*cm, 9.5*cm, 4*cm, 10*cm], rowHeights=[0.9*cm, 0.9*cm])
         master_table.setStyle(TableStyle([
             ('GRID', (0,0), (-1,-1), 1, colors.black),
             ('BACKGROUND', (0,0), (-1,-1), bg_blue), # Blue background for ALL cells (headers and values)
