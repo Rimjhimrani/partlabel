@@ -483,11 +483,10 @@ def generate_bin_labels(df, mtm_models, progress_bar=None, status_text=None):
 # --- PDF Generation (Rack List) ---
 def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo_h, fixed_logo_path, progress_bar=None, status_text=None):
     buffer = io.BytesIO()
-    # 1. MODIFIED: Reduced Margins to 0.5cm
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), topMargin=0.5*cm, bottomMargin=0.5*cm, leftMargin=1*cm, rightMargin=1*cm)
     elements = []
     
-    # --- CHANGE: Filter out EMPTY locations ---
+    # Filter out EMPTY locations
     df = df[df['Part No'].str.upper() != 'EMPTY'].copy()
     
     # Pre-process grouping keys
@@ -503,7 +502,7 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
     # Check if 'Zone' exists in the data and has values
     has_zone = 'Zone' in df.columns and df['Zone'].notna().any()
     
-    # Define styles for the Master Table Values (Bold, Size 12)
+    # Define styles for the Master Table Values
     master_value_style_left = ParagraphStyle(name='MasterValLeft', fontName='Helvetica-Bold', fontSize=13, alignment=TA_LEFT)
     master_value_style_center = ParagraphStyle(name='MasterValCenter', fontName='Helvetica-Bold', fontSize=13, alignment=TA_CENTER)
 
@@ -516,7 +515,6 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         bus_model = str(first_row.get('Bus Model', ''))
         
         # --- Top Header Section ---
-        # Top Logo handling
         top_logo_img = ""
         if top_logo_file:
             try:
@@ -530,11 +528,9 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
             ('ALIGN', (-1,-1), (-1,-1), 'RIGHT'),
         ]))
         elements.append(header_table)
-        
-        # 2. MODIFIED: Reduced spacer between Logo and Master Table
         elements.append(Spacer(1, 0.1*cm))
         
-        # --- Master Info Table (Blue Headers AND Blue Values) ---
+        # --- Master Info Table ---
         master_data = [
             [Paragraph("STATION NAME", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=12)), 
              Paragraph(station_name, master_value_style_left),
@@ -552,7 +548,7 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         master_table = Table(master_data, colWidths=[4*cm, 9.5*cm, 4*cm, 10*cm], rowHeights=[0.8*cm, 0.8*cm])
         master_table.setStyle(TableStyle([
             ('GRID', (0,0), (-1,-1), 1, colors.black),
-            ('BACKGROUND', (0,0), (-1,-1), bg_blue), # Blue background for ALL cells (headers and values)
+            ('BACKGROUND', (0,0), (-1,-1), bg_blue),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
             ('FONTNAME', (0,0), (-1,-1), 'Helvetica-Bold'),
             ('TEXTCOLOR', (0,0), (-1,-1), colors.black),
@@ -563,11 +559,8 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         ]))
         elements.append(master_table)
         
-        # 3. MODIFIED: Reduced spacer between Master Table and Data Table
-        
-        # --- Data Table (Orange Headers) ---
+        # --- Data Table ---
         header_row = ["S.NO", "PART NO", "PART DESCRIPTION", "CONTAINER", "QTY/BIN", "LOCATION"]
-        
         col_widths = [1.5*cm, 4.5*cm, 9.5*cm, 3.5*cm, 2.5*cm, 6.0*cm]
         
         if has_zone:
@@ -575,7 +568,6 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
             col_widths = [2.0*cm, 1.3*cm, 4.0*cm, 8.2*cm, 3.5*cm, 2.5*cm, 6.0*cm]
             
         data_rows = [header_row]
-        
         group_sorted = group.sort_values(by=['Level', 'Cell'])
         bg_orange = colors.HexColor("#F4B084") 
         
@@ -586,7 +578,6 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
             ('ALIGN', (0,0), (-1,-1), 'CENTER'),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
             ('FONTSIZE', (0,0), (-1,-1), 11),
-            # 4. MODIFIED: Reduced cell padding to fit more rows
             ('TOPPADDING', (0,0), (-1,-1), 1),
             ('BOTTOMPADDING', (0,0), (-1,-1), 1),
         ]
@@ -600,8 +591,6 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
             desc = str(row.get('Description', ''))
             cont = str(row.get('Container', ''))
             qty = str(row.get('Qty/Bin', ''))
-            
-            # Use base_rack_id here
             loc_str = f"{bus_model}-{row.get('Station No','')}-{base_rack_id}{rack_key}-{row.get('Level','')}{row.get('Cell','')}"
             
             row_data = [str(s_no), p_no, Paragraph(desc, rl_cell_left_style), cont, qty, loc_str]
@@ -609,7 +598,6 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
             if has_zone:
                 zone_val = str(row.get('Zone', ''))
                 row_data.insert(0, zone_val)
-                
                 if zone_val == previous_zone and idx > 0:
                     row_data[0] = "" 
                 else:
@@ -626,33 +614,46 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
 
         data_table = Table(data_rows, colWidths=col_widths)
         data_table.setStyle(TableStyle(table_style_cmds))
-        
         elements.append(data_table)
-        elements.append(Spacer(1, 0.3*cm))
+        elements.append(Spacer(1, 0.2*cm))
         
-        # --- Footer Section ---
+        # --- COMPACT FOOTER SECTION ---
         today_date = datetime.date.today().strftime("%d-%m-%Y")
         
-        fixed_logo_img = Paragraph("<b>Agilomatrix</b>", ParagraphStyle('LogoText', textColor=colors.darkblue))
+        # 1. Prepare Logo (Aligned Right)
+        fixed_logo_img = Paragraph("<b>Agilomatrix</b>", ParagraphStyle('LogoText', textColor=colors.darkblue, alignment=TA_RIGHT))
         if os.path.exists(fixed_logo_path):
              fixed_logo_img = RLImage(fixed_logo_path, width=4.3*cm, height=1.5*cm)
         
-        footer_data = [
-            [Paragraph(f"Creation Date: {today_date}", rl_cell_left_style), ""],
-            [Paragraph("<b>Verified by:</b>", rl_cell_left_style), Paragraph("Designed by:", ParagraphStyle('R', alignment=TA_RIGHT))],
-            [Paragraph("Name:", rl_cell_left_style), fixed_logo_img],
-            [Paragraph("Signature:", rl_cell_left_style), ""]
+        # 2. Left Side Content (Stacked closely)
+        left_content = [
+            Paragraph(f"<i>Creation Date: {today_date}</i>", rl_cell_left_style),
+            Spacer(1, 0.2*cm),
+            Paragraph("<b>Verified by:</b>", ParagraphStyle('BoldFooter', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT)),
+            Paragraph("Name: ___________________", rl_cell_left_style),
+            Paragraph("Signature: _______________", rl_cell_left_style)
         ]
+
+        # 3. Right Side Content (Designed By Text + Logo Side-by-Side)
+        designed_by_text = Paragraph("Designed by:", ParagraphStyle('DesignedBy', fontName='Helvetica', fontSize=10, alignment=TA_RIGHT))
         
-        footer_table = Table(footer_data, colWidths=[22.5*cm, 5*cm])
+        # Nested table for right side to align "Designed by:" left of the Logo
+        right_inner_table = Table([[designed_by_text, fixed_logo_img]], colWidths=[3*cm, 4.5*cm])
+        right_inner_table.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('ALIGN', (0,0), (-1,-1), 'RIGHT'),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+        ]))
+
+        # 4. Main Footer Table (2 Columns: Left=Verification, Right=Branding)
+        footer_table = Table([[left_content, right_inner_table]], colWidths=[20*cm, 7.7*cm])
         footer_table.setStyle(TableStyle([
-            ('VALIGN', (-1,1), (-1,-1), 'TOP'),
-            ('ALIGN', (-1,1), (-1,1), 'RIGHT'), 
-            ('ALIGN', (-1,2), (-1,2), 'RIGHT'), 
-            ('SPAN', (-1, 2), (-1, 3)) 
+            ('VALIGN', (0,0), (-1,-1), 'BOTTOM'),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
         ]))
         
-        elements.append(Spacer(1, 0.5*cm))
         elements.append(footer_table)
         elements.append(PageBreak())
         
