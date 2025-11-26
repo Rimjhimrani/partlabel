@@ -504,8 +504,8 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
     has_zone = 'Zone' in df.columns and df['Zone'].notna().any()
     
     # Define styles for the Master Table Values (Bold, Size 12)
-    master_value_style_left = ParagraphStyle(name='MasterValLeft', fontName='Helvetica-Bold', fontSize=12, alignment=TA_LEFT)
-    master_value_style_center = ParagraphStyle(name='MasterValCenter', fontName='Helvetica-Bold', fontSize=12, alignment=TA_CENTER)
+    master_value_style_left = ParagraphStyle(name='MasterValLeft', fontName='Helvetica-Bold', fontSize=14, alignment=TA_LEFT)
+    master_value_style_center = ParagraphStyle(name='MasterValCenter', fontName='Helvetica-Bold', fontSize=14, alignment=TA_CENTER)
 
     for i, ((station_no, rack_key), group) in enumerate(grouped):
         if progress_bar: progress_bar.progress(int(((i+1) / total_groups) * 100))
@@ -536,14 +536,14 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         
         # --- Master Info Table (Blue Headers AND Blue Values) ---
         master_data = [
-            [Paragraph("STATION NAME", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=11)), 
+            [Paragraph("STATION NAME", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=12)), 
              Paragraph(station_name, master_value_style_left),
-             Paragraph("STATION NO", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=12)), 
+             Paragraph("STATION NO", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=14)), 
              Paragraph(str(station_no), master_value_style_center)],
             
-            [Paragraph("MODEL", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=12)), 
+            [Paragraph("MODEL", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=14)), 
              Paragraph(bus_model, master_value_style_left),
-             Paragraph("RACK NO", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=12)), 
+             Paragraph("RACK NO", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=14)), 
              Paragraph(f"Rack - {rack_key}", master_value_style_center)]
         ]
         
