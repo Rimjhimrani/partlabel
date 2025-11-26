@@ -486,7 +486,7 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.5*cm, bottomMargin=1.5*cm, leftMargin=1*cm, rightMargin=1*cm)
     elements = []
     
-    # --- Filter out EMPTY locations ---
+    # --- CHANGE: Filter out EMPTY locations ---
     df = df[df['Part No'].str.upper() != 'EMPTY'].copy()
     
     # Pre-process grouping keys
@@ -505,14 +505,6 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
     # Define styles for the Master Table Values (Bold, Size 12)
     master_value_style_left = ParagraphStyle(name='MasterValLeft', fontName='Helvetica-Bold', fontSize=12, alignment=TA_LEFT)
     master_value_style_center = ParagraphStyle(name='MasterValCenter', fontName='Helvetica-Bold', fontSize=12, alignment=TA_CENTER)
-    
-    # Define Style for Document Ref No (Size 12, Bold)
-    doc_ref_style = ParagraphStyle(name='DocRef', fontName='Helvetica-Bold', fontSize=12, alignment=TA_LEFT)
-
-    # Define Styles for Footer
-    footer_txt_style = ParagraphStyle(name='FooterTxt', fontName='Helvetica', fontSize=10, alignment=TA_LEFT, leading=12)
-    footer_bold_style = ParagraphStyle(name='FooterBold', fontName='Helvetica-Bold', fontSize=10, alignment=TA_LEFT, leading=12)
-    footer_right_style = ParagraphStyle(name='FooterRight', fontName='Helvetica', fontSize=10, alignment=TA_RIGHT, leading=12)
 
     for i, ((station_no, rack_key), group) in enumerate(grouped):
         if progress_bar: progress_bar.progress(int(((i+1) / total_groups) * 100))
@@ -531,8 +523,7 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
             except:
                 pass
         
-        # UPDATED: Document Ref No uses doc_ref_style (Size 12)
-        header_table = Table([[Paragraph("Document Ref No.:", doc_ref_style), "", top_logo_img]], colWidths=[5*cm, 9*cm, 5*cm])
+        header_table = Table([[Paragraph("Document Ref No.:", rl_header_style), "", top_logo_img]], colWidths=[5*cm, 9*cm, 5*cm])
         header_table.setStyle(TableStyle([
             ('VALIGN', (0,0), (-1,-1), 'TOP'),
             ('ALIGN', (-1,-1), (-1,-1), 'RIGHT'),
@@ -558,7 +549,7 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         master_table = Table(master_data, colWidths=[3.5*cm, 7.5*cm, 3.5*cm, 4.5*cm], rowHeights=[0.8*cm, 0.8*cm])
         master_table.setStyle(TableStyle([
             ('GRID', (0,0), (-1,-1), 1, colors.black),
-            ('BACKGROUND', (0,0), (-1,-1), bg_blue), 
+            ('BACKGROUND', (0,0), (-1,-1), bg_blue), # Blue background for ALL cells (headers and values)
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
             ('FONTNAME', (0,0), (-1,-1), 'Helvetica-Bold'),
             ('TEXTCOLOR', (0,0), (-1,-1), colors.black),
@@ -630,43 +621,29 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         elements.append(data_table)
         elements.append(Spacer(1, 1*cm))
         
-        # --- Footer Section (UPDATED DESIGN) ---
+        # --- Footer Section ---
         today_date = datetime.date.today().strftime("%d-%m-%Y")
         
         fixed_logo_img = Paragraph("<b>Agilomatrix</b>", ParagraphStyle('LogoText', textColor=colors.darkblue))
         if os.path.exists(fixed_logo_path):
              fixed_logo_img = RLImage(fixed_logo_path, width=4.3*cm, height=1.5*cm)
         
-        # Define spacing using empty rows
-        # Row 0: Creation Date
-        # Row 1: Gap
-        # Row 2: Verified By | Designed By
-        # Row 3: Name | Logo
-        # Row 4: Gap for signature
-        # Row 5: Signature | Logo (spanned)
-        
         footer_data = [
-            [Paragraph(f"Creation Date: {today_date}", footer_txt_style), ""],
-            ["", ""], # Spacer Row
-            [Paragraph("Verified by:", footer_bold_style), Paragraph("Designed by:", footer_right_style)],
-            [Paragraph("Name:", footer_txt_style), fixed_logo_img],
-            ["", ""], # Spacer Row for Name/Signature gap
-            [Paragraph("Signature:", footer_txt_style), ""]
+            [Paragraph(f"Creation Date: {today_date}", rl_cell_left_style), ""],
+            [Paragraph("<b>Verified by:</b>", rl_cell_left_style), Paragraph("Designed by:", ParagraphStyle('R', alignment=TA_RIGHT))],
+            [Paragraph("Name:", rl_cell_left_style), fixed_logo_img],
+            [Paragraph("Signature:", rl_cell_left_style), ""]
         ]
         
-        # Row Heights: [Date, Gap, Verified, Name, Gap, Signature]
-        footer_rows_heights = [0.6*cm, 0.6*cm, 0.6*cm, 0.6*cm, 1.0*cm, 0.6*cm]
-        
-        footer_table = Table(footer_data, colWidths=[13*cm, 6*cm], rowHeights=footer_rows_heights)
-        
+        footer_table = Table(footer_data, colWidths=[14*cm, 5*cm])
         footer_table.setStyle(TableStyle([
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('ALIGN', (-1,2), (-1,2), 'RIGHT'), # Align "Designed by" to Right
-            ('ALIGN', (-1,3), (-1,-1), 'RIGHT'), # Align Logo to Right
-            ('SPAN', (-1, 3), (-1, 5)) # Span Logo across Name, Gap, and Signature rows
+            ('VALIGN', (-1,1), (-1,-1), 'TOP'),
+            ('ALIGN', (-1,1), (-1,1), 'RIGHT'), 
+            ('ALIGN', (-1,2), (-1,2), 'RIGHT'), 
+            ('SPAN', (-1, 2), (-1, 3)) 
         ]))
         
-        elements.append(Spacer(1, 0.2*cm))
+        elements.append(Spacer(1, 0.5*cm))
         elements.append(footer_table)
         elements.append(PageBreak())
         
