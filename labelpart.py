@@ -533,7 +533,7 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         
         # --- Master Info Table (Blue Headers AND Blue Values) ---
         master_data = [
-            [Paragraph("STATION NAME", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=12)), 
+            [Paragraph("STATION NAME", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=11)), 
              Paragraph(station_name, master_value_style_left),
              Paragraph("STATION NO", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=12)), 
              Paragraph(str(station_no), master_value_style_center)],
