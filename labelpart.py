@@ -483,7 +483,8 @@ def generate_bin_labels(df, mtm_models, progress_bar=None, status_text=None):
 # --- PDF Generation (Rack List) ---
 def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo_h, fixed_logo_path, progress_bar=None, status_text=None):
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.5*cm, bottomMargin=1.5*cm, leftMargin=1*cm, rightMargin=1*cm)
+    # MODIFIED: Changed pagesize to landscape(A4)
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), topMargin=1.5*cm, bottomMargin=1.5*cm, leftMargin=1*cm, rightMargin=1*cm)
     elements = []
     
     # --- CHANGE: Filter out EMPTY locations ---
