@@ -529,14 +529,14 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         
         # --- Master Info Table (Blue Headers) ---
         master_data = [
-            [Paragraph("STATION NAME", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=11)), 
+            [Paragraph("STATION NAME", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=12)), 
              Paragraph(station_name, rl_cell_left_style),
-             Paragraph("STATION NO", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=11)), 
+             Paragraph("STATION NO", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=12)), 
              Paragraph(str(station_no), rl_cell_style)],
             
-            [Paragraph("MODEL", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=11)), 
+            [Paragraph("MODEL", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=12)), 
              Paragraph(bus_model, rl_cell_left_style),
-             Paragraph("RACK NO", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=11)), 
+             Paragraph("RACK NO", ParagraphStyle('H', fontName='Helvetica-Bold', fontSize=12)), 
              Paragraph(f"Rack - {rack_key}", rl_cell_style)]
         ]
         
