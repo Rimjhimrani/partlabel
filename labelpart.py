@@ -483,7 +483,8 @@ def generate_bin_labels(df, mtm_models, progress_bar=None, status_text=None):
 # --- PDF Generation (Rack List) ---
 def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo_h, fixed_logo_path, progress_bar=None, status_text=None):
     buffer = io.BytesIO()
-    # MODIFIED: Changed pagesize to landscape(A4)
+    # 1. CHANGED: pagesize to landscape(A4)
+    # 2. CHANGED: Margins set to 1cm to allow max width
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), topMargin=1.5*cm, bottomMargin=1.5*cm, leftMargin=1*cm, rightMargin=1*cm)
     elements = []
     
@@ -524,7 +525,8 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
             except:
                 pass
         
-        header_table = Table([[Paragraph("Document Ref No.:", rl_header_style), "", top_logo_img]], colWidths=[5*cm, 9*cm, 5*cm])
+        # 3. CHANGED: Widths adjusted for landscape (Total ~27.5cm)
+        header_table = Table([[Paragraph("Document Ref No.:", rl_header_style), "", top_logo_img]], colWidths=[5*cm, 17.5*cm, 5*cm])
         header_table.setStyle(TableStyle([
             ('VALIGN', (0,0), (-1,-1), 'TOP'),
             ('ALIGN', (-1,-1), (-1,-1), 'RIGHT'),
@@ -547,7 +549,8 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         
         bg_blue = colors.HexColor("#8EAADB")
         
-        master_table = Table(master_data, colWidths=[3.5*cm, 7.5*cm, 3.5*cm, 4.5*cm], rowHeights=[0.8*cm, 0.8*cm])
+        # 4. CHANGED: Widths adjusted for landscape (Total ~27.5cm)
+        master_table = Table(master_data, colWidths=[4*cm, 9.5*cm, 4*cm, 10*cm], rowHeights=[0.8*cm, 0.8*cm])
         master_table.setStyle(TableStyle([
             ('GRID', (0,0), (-1,-1), 1, colors.black),
             ('BACKGROUND', (0,0), (-1,-1), bg_blue), # Blue background for ALL cells (headers and values)
@@ -563,11 +566,15 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         
         # --- Data Table (Orange Headers) ---
         header_row = ["S.NO", "PART NO", "PART DESCRIPTION", "CONTAINER", "QTY/BIN", "LOCATION"]
-        col_widths = [1.2*cm, 3.5*cm, 6.3*cm, 2.5*cm, 2.0*cm, 3.5*cm]
+        
+        # 5. CHANGED: Widths adjusted for landscape (Total ~27.5cm)
+        # Significantly increased Description (6.3->9.5) and Location (3.5->6.0)
+        col_widths = [1.5*cm, 4.5*cm, 9.5*cm, 3.5*cm, 2.5*cm, 6.0*cm]
         
         if has_zone:
             header_row.insert(0, "ZONE")
-            col_widths = [1.5*cm, 1.0*cm, 3.2*cm, 5.5*cm, 2.3*cm, 2.0*cm, 3.5*cm]
+            # Adjusted for Zone scenario too
+            col_widths = [2.0*cm, 1.3*cm, 4.0*cm, 8.2*cm, 3.5*cm, 2.5*cm, 6.0*cm]
             
         data_rows = [header_row]
         
@@ -629,6 +636,7 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         if os.path.exists(fixed_logo_path):
              fixed_logo_img = RLImage(fixed_logo_path, width=4.3*cm, height=1.5*cm)
         
+        # 6. CHANGED: Widths adjusted for landscape
         footer_data = [
             [Paragraph(f"Creation Date: {today_date}", rl_cell_left_style), ""],
             [Paragraph("<b>Verified by:</b>", rl_cell_left_style), Paragraph("Designed by:", ParagraphStyle('R', alignment=TA_RIGHT))],
@@ -636,7 +644,7 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
             [Paragraph("Signature:", rl_cell_left_style), ""]
         ]
         
-        footer_table = Table(footer_data, colWidths=[14*cm, 5*cm])
+        footer_table = Table(footer_data, colWidths=[22.5*cm, 5*cm])
         footer_table.setStyle(TableStyle([
             ('VALIGN', (-1,1), (-1,-1), 'TOP'),
             ('ALIGN', (-1,1), (-1,1), 'RIGHT'), 
