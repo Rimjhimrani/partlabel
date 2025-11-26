@@ -628,7 +628,7 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         data_table.setStyle(TableStyle(table_style_cmds))
         
         elements.append(data_table)
-        elements.append(Spacer(1, 0.5*cm))
+        elements.append(Spacer(1, 0.3*cm))
         
         # --- Footer Section ---
         today_date = datetime.date.today().strftime("%d-%m-%Y")
