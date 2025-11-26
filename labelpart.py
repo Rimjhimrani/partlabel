@@ -483,7 +483,6 @@ def generate_bin_labels(df, mtm_models, progress_bar=None, status_text=None):
 # --- PDF Generation (Rack List) ---
 def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo_h, fixed_logo_path, progress_bar=None, status_text=None):
     buffer = io.BytesIO()
-    # 1. MODIFIED: Reduced Margins to 0.5cm
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), topMargin=0.5*cm, bottomMargin=0.5*cm, leftMargin=1*cm, rightMargin=1*cm)
     elements = []
     
@@ -531,7 +530,6 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         ]))
         elements.append(header_table)
         
-        # 2. MODIFIED: Reduced spacer between Logo and Master Table
         elements.append(Spacer(1, 0.1*cm))
         
         # --- Master Info Table (Blue Headers AND Blue Values) ---
@@ -563,7 +561,7 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         ]))
         elements.append(master_table)
         
-        # 3. MODIFIED: Reduced spacer between Master Table and Data Table
+        elements.append(Spacer(1, 0.2*cm))
         
         # --- Data Table (Orange Headers) ---
         header_row = ["S.NO", "PART NO", "PART DESCRIPTION", "CONTAINER", "QTY/BIN", "LOCATION"]
@@ -586,9 +584,9 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
             ('ALIGN', (0,0), (-1,-1), 'CENTER'),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
             ('FONTSIZE', (0,0), (-1,-1), 12),
-            # 4. MODIFIED: Reduced cell padding to fit more rows
-            ('TOPPADDING', (0,0), (-1,-1), 1),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 1),
+            # 4. MODIFIED: Increased padding to 4 (approx 0.1cm + 1) to heighten rows
+            ('TOPPADDING', (0,0), (-1,-1), 4),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
         ]
         
         previous_zone = None
