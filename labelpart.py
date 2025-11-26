@@ -549,7 +549,7 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         
         bg_blue = colors.HexColor("#8EAADB")
         
-        master_table = Table(master_data, colWidths=[4*cm, 9.5*cm, 4*cm, 10*cm], rowHeights=[0.8*cm, 0.8*cm])
+        master_table = Table(master_data, colWidths=[4*cm, 9.5*cm, 4*cm, 10*cm], rowHeights=[1*cm, 1*cm])
         master_table.setStyle(TableStyle([
             ('GRID', (0,0), (-1,-1), 1, colors.black),
             ('BACKGROUND', (0,0), (-1,-1), bg_blue), # Blue background for ALL cells (headers and values)
@@ -564,7 +564,6 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
         elements.append(master_table)
         
         # 3. MODIFIED: Reduced spacer between Master Table and Data Table
-        elements.append(Spacer(1, 0.2*cm))
         
         # --- Data Table (Orange Headers) ---
         header_row = ["S.NO", "PART NO", "PART DESCRIPTION", "CONTAINER", "QTY/BIN", "LOCATION"]
@@ -586,7 +585,7 @@ def generate_rack_list_pdf(df, base_rack_id, top_logo_file, top_logo_w, top_logo
             ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
             ('ALIGN', (0,0), (-1,-1), 'CENTER'),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('FONTSIZE', (0,0), (-1,-1), 11),
+            ('FONTSIZE', (0,0), (-1,-1), 12),
             # 4. MODIFIED: Reduced cell padding to fit more rows
             ('TOPPADDING', (0,0), (-1,-1), 1),
             ('BOTTOMPADDING', (0,0), (-1,-1), 1),
