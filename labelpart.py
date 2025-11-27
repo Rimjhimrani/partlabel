@@ -372,8 +372,46 @@ def generate_bin_labels(df, mtm_models, progress_bar=None, status_text=None):
                             leftMargin=0.1*cm, rightMargin=0.1*cm)
 
     df_filtered = df[df['Part No'].str.upper() != 'EMPTY'].copy()
+    
+    # --- MERGING LOGIC START ---
+    # We group rows that are in the exact same physical location (Station/Rack/Level/Cell) AND have the same Part No.
+    # This merges "Model 7M" and "Model 9M" rows into one label object.
+    
+    grouped_data = {}
+    
+    # Sort first to ensure processing order is roughly correct before grouping
     df_filtered.sort_values(by=['Station No', 'Rack No 1st', 'Rack No 2nd', 'Level', 'Cell'], inplace=True)
-    total_labels = len(df_filtered)
+    
+    for index, row in df_filtered.iterrows():
+        # Create a unique key based on Physical Location + Part Number
+        loc_key = (
+            row.get('Station No', ''),
+            row.get('Rack No 1st', ''),
+            row.get('Rack No 2nd', ''),
+            row.get('Level', ''),
+            row.get('Cell', ''),
+            row.get('Part No', '')
+        )
+        
+        # If this is the first time seeing this Part at this Location, initialize the record
+        if loc_key not in grouped_data:
+            grouped_data[loc_key] = row.to_dict()
+            grouped_data[loc_key]['mtm_map'] = {} # Initialize a dictionary to hold model quantities
+        
+        # Extract Model and Qty from the current row
+        model = str(row.get('Bus Model', '')).strip().upper()
+        qty_veh_val = str(row.get('Qty/Veh', '')).strip()
+        
+        # Add to the map if valid. 
+        # Example result: {'7M': '1', '9M': '2'}
+        if model and qty_veh_val:
+            grouped_data[loc_key]['mtm_map'][model] = qty_veh_val
+
+    # Convert values back to a list for the label generation loop
+    final_records = list(grouped_data.values())
+    total_labels = len(final_records)
+    # --- MERGING LOGIC END ---
+
     label_summary = {}
     all_elements = []
 
@@ -386,7 +424,7 @@ def generate_bin_labels(df, mtm_models, progress_bar=None, status_text=None):
         canvas.rect(x_offset + doc.leftMargin, y_offset, CONTENT_BOX_WIDTH - 0.2*cm, CONTENT_BOX_HEIGHT)
         canvas.restoreState()
 
-    for i, row in enumerate(df_filtered.to_dict('records')):
+    for i, row in enumerate(final_records):
         if progress_bar: progress_bar.progress(int(((i+1) / total_labels) * 100))
         if status_text: status_text.text(f"Processing Bin Label {i+1}/{total_labels}")
         
@@ -396,8 +434,7 @@ def generate_bin_labels(df, mtm_models, progress_bar=None, status_text=None):
         part_no = str(row.get('Part No', ''))
         desc = str(row.get('Description', ''))
         qty_bin = str(row.get('Qty/Bin', ''))
-        qty_veh = str(row.get('Qty/Veh', ''))
-
+        
         store_loc_raw = extract_store_location_data_from_excel(row)
         line_loc_raw = extract_location_values(row)
 
@@ -408,7 +445,6 @@ def generate_bin_labels(df, mtm_models, progress_bar=None, status_text=None):
             f"Part No: {part_no}\n"
             f"Desc: {desc}\n"
             f"Qty/Bin: {qty_bin}\n"
-            f"Qty/Veh: {qty_veh}\n"
             f"Store Loc: {store_loc_str}\n"
             f"Line Loc: {line_loc_str}"
         )
@@ -439,16 +475,21 @@ def generate_bin_labels(df, mtm_models, progress_bar=None, status_text=None):
         line_loc_table = Table([[Paragraph("Line Location", bin_desc_style), line_loc_inner]], colWidths=[content_width/3, inner_table_width], rowHeights=[0.5*cm])
         line_loc_table.setStyle(TableStyle([('GRID', (0,0),(-1,-1), 1.2, colors.black), ('ALIGN', (0,0),(-1,-1), 'CENTER'), ('VALIGN', (0,0),(-1,-1), 'MIDDLE')]))
 
-        # --- DYNAMIC MTM TABLE GENERATION ---
+        # --- DYNAMIC MTM TABLE GENERATION (UPDATED) ---
         mtm_table = None
         if mtm_models:
-            qty_veh = str(row.get('Qty/Veh', ''))
-            bus_model = str(row.get('Bus Model', '')).strip().upper()
+            # Retrieve the consolidated map of models and quantities for this part
+            mtm_map = row.get('mtm_map', {})
             
             mtm_qty_values = []
             for model in mtm_models:
-                if bus_model == model.strip().upper() and qty_veh:
-                    mtm_qty_values.append(Paragraph(f"<b>{qty_veh}</b>", bin_qty_style))
+                # Normalize model name for lookup
+                model_key = model.strip().upper()
+                
+                # Check if this model exists in our consolidated map
+                if model_key in mtm_map:
+                    qty_val = mtm_map[model_key]
+                    mtm_qty_values.append(Paragraph(f"<b>{qty_val}</b>", bin_qty_style))
                 else:
                     mtm_qty_values.append("")
             
